@@ -1,4 +1,5 @@
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE OverloadedStrings         #-}
 
 module Main where
 
@@ -19,6 +20,7 @@ import qualified Data.ByteString.Base64   as Base64
 import qualified Data.ByteString.Char8    as BC
 import qualified Data.ByteString.Lazy     as L
 import           Data.PEM                 (pemContent, pemName, pemParseBS)
+import           Data.Typeable
 import           Data.X509
 import           Data.X509.File
 import           Data.X509.Memory
@@ -79,6 +81,23 @@ instance OIDable X520Attribute where
   getObjectID DomainComponent            = [0,9,2342,19200300,100,1,25]
   getObjectID UserId                     = [0,9,2342,19200300,100,1,1]
 
+data PKCS9Attribute =
+  forall e . (Extension e, Show e, Eq e, Typeable e) => PKCS9Attribute e
+
+newtype PKCS9Attributes = PKCS9Attributes [PKCS9Attribute] deriving (Show, Eq)
+
+instance Show PKCS9Attribute where
+  show (PKCS9Attribute e) = show e
+
+instance Eq PKCS9Attribute where
+   (PKCS9Attribute x) == (PKCS9Attribute y) =
+     case cast y of
+       Just y' -> x == y'
+       _ -> False
+
+instance OIDable PKCS9Attributes where
+  getObjectID _ = [1,2,840,113549,1,9,14]
+
 newtype X520Attributes =
         X520Attributes [(X520Attribute, String)] deriving (Show, Eq)
 
@@ -92,7 +111,7 @@ data CertificationRequestInfo = CertificationRequestInfo {
   version                :: Version
   , subject              :: X520Attributes
   , subjectPublicKeyInfo :: PubKey
-  -- , attributes           ::
+  , attributes           :: PKCS9Attributes
 } deriving (Show, Eq)
 
 newtype Version = Version Int deriving (Show, Eq)
@@ -120,13 +139,13 @@ instance ASN1Object Signature where
   fromASN1 = undefined
 
 instance ASN1Object CertificationRequestInfo where
-  toASN1 (CertificationRequestInfo version subject pubKey) xs =
+  toASN1 (CertificationRequestInfo version subject pubKey attributes) xs =
     Start Sequence :
       (toASN1 version .
        toASN1 subject .
-       toASN1 pubKey)
-      [Start (Container Context 0), End (Container Context 0)] ++
-      End Sequence : xs
+       toASN1 pubKey .
+       toASN1 attributes)
+      (End Sequence : xs)
 
   fromASN1 = undefined
 
@@ -139,10 +158,10 @@ instance ASN1Object Version where
 instance ASN1Object X520Attributes where
   toASN1 (X520Attributes attrs) xs = do
     Start Sequence :
-      attrSets ++
+      attrSet ++
       End Sequence : xs
     where
-      attrSets = concatMap f attrs
+      attrSet = concatMap f attrs
       f (attr, s) = [Start Set, Start Sequence, oid attr, cs s, End Sequence, End Set]
       oid attr = OID $ getObjectID attr
       cs s = ASN1String $ asn1CharacterString UTF8 s
@@ -150,9 +169,34 @@ instance ASN1Object X520Attributes where
   fromASN1 = undefined
 
 instance ASN1Object SignatureAlgorithmIdentifier where
-  toASN1 (SignatureAlgorithmIdentifier sigAlg) = toASN1 sigAlg
+  toASN1 (SignatureAlgorithmIdentifier sigAlg) =
+    toASN1 sigAlg
 
   fromASN1 = undefined
+
+instance ASN1Object PKCS9Attributes where
+  toASN1 r @ (PKCS9Attributes exts) xs =
+    Start (Container Context 0) :
+      asnExts ++
+      End (Container Context 0) : xs
+    where
+      asnExts =
+        case exts of
+          [] -> []
+          es ->
+            [Start Sequence, OID $ getObjectID r, Start Set, Start Sequence] ++
+              extSet ++
+              [End Sequence, End Set, End Sequence]
+            where extSet = concatMap f es
+                  f (PKCS9Attribute a) = [Start Sequence, oid a, os a, End Sequence]
+                  oid a = OID $ extOID a
+                  os a = (OctetString . encodeASN1' DER . extEncode) a
+
+  fromASN1 = undefined
+
+readPEMFile file = do
+    content <- B.readFile file
+    return $ either error id $ pemParseBS content
 
 main :: IO ()
 main = do
@@ -162,6 +206,7 @@ main = do
        version = Version 0
        , subject = X520Attributes [(X520CommonName, "node.fcomb.io"), (X520OrganizationName, "fcomb")]
        , subjectPublicKeyInfo = PubKeyRSA pubKey
+       , attributes = PKCS9Attributes [PKCS9Attribute $ ExtExtendedKeyUsage [KeyUsagePurpose_ServerAuth, KeyUsagePurpose_CodeSigning], PKCS9Attribute $ ExtKeyUsage [KeyUsage_cRLSign, KeyUsage_digitalSignature]]
      }
      let scratch = encodeASN1' DER $ toASN1 certificationRequestInfo []
      Right signature <- RSA.signSafer (Just SHA256) privKey scratch
