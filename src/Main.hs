@@ -104,12 +104,12 @@ newtype Signature =
         Signature B.ByteString deriving (Show, Eq)
 
 instance ASN1Object CertificationRequest where
-  toASN1 (CertificationRequest info sigAlg sig) xs = do
+  toASN1 (CertificationRequest info sigAlg sig) xs =
     Start Sequence :
-      (toASN1 info []) ++
-      (toASN1 sigAlg []) ++
-      (toASN1 sig []) ++
-      End Sequence : xs
+      (toASN1 info .
+       toASN1 sigAlg .
+       toASN1 sig)
+      (End Sequence : xs)
 
   fromASN1 = undefined
 
@@ -122,9 +122,9 @@ instance ASN1Object Signature where
 instance ASN1Object CertificationRequestInfo where
   toASN1 (CertificationRequestInfo version subject pubKey) xs =
     Start Sequence :
-      (toASN1 version []) ++
-      (toASN1 subject []) ++
-      (toASN1 pubKey []) ++
+      (toASN1 version .
+       toASN1 subject .
+       toASN1 pubKey)
       [Start (Container Context 0), End (Container Context 0)] ++
       End Sequence : xs
 
@@ -132,7 +132,7 @@ instance ASN1Object CertificationRequestInfo where
 
 instance ASN1Object Version where
   toASN1 (Version v) xs =
-    [IntVal $ fromIntegral v] ++ xs
+    (IntVal $ fromIntegral v) : xs
 
   fromASN1 = undefined
 
