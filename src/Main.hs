@@ -134,7 +134,11 @@ instance ASN1Object Signature where
   toASN1 (Signature bs) xs =
     (BitString $ toBitArray bs 0) : xs
 
-  fromASN1 = undefined
+  fromASN1 (BitString s : xs) =
+    Right (Signature $ bitArrayGetData s, xs)
+
+  fromASN1 _ =
+    Left "fromASN1: PKCS9.Signature: unknown format"
 
 instance ASN1Object CertificationRequestInfo where
   toASN1 (CertificationRequestInfo version subject pubKey attributes) xs =
