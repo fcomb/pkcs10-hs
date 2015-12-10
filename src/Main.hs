@@ -57,30 +57,49 @@ data X520Attribute =
      | UserId
      deriving (Show, Eq)
 
-oidPrefix :: [Integer]
-oidPrefix = [2,5,4]
-
 instance OIDable X520Attribute where
-  getObjectID X520CommonName             = oidPrefix ++ [3]
-  getObjectID X520SerialNumber           = oidPrefix ++ [5]
-  getObjectID X520Name                   = oidPrefix ++ [41]
-  getObjectID X520Surname                = oidPrefix ++ [4]
-  getObjectID X520GivenName              = oidPrefix ++ [42]
-  getObjectID X520Initials               = oidPrefix ++ [43]
-  getObjectID X520GenerationQualifier    = oidPrefix ++ [44]
-  getObjectID X520CountryName            = oidPrefix ++ [6]
-  getObjectID X520LocalityName           = oidPrefix ++ [7]
-  getObjectID X520StateOrProvinceName    = oidPrefix ++ [8]
-  getObjectID X520StreetAddress          = oidPrefix ++ [9]
-  getObjectID X520OrganizationName       = oidPrefix ++ [10]
-  getObjectID X520OrganizationalUnitName = oidPrefix ++ [11]
-  getObjectID X520Title                  = oidPrefix ++ [12]
-  getObjectID X520DNQualifier            = oidPrefix ++ [46]
-  getObjectID X520Pseudonym              = oidPrefix ++ [65]
+  getObjectID X520CommonName             = [2,5,4,3]
+  getObjectID X520SerialNumber           = [2,5,4,5]
+  getObjectID X520Name                   = [2,5,4,41]
+  getObjectID X520Surname                = [2,5,4,4]
+  getObjectID X520GivenName              = [2,5,4,42]
+  getObjectID X520Initials               = [2,5,4,43]
+  getObjectID X520GenerationQualifier    = [2,5,4,44]
+  getObjectID X520CountryName            = [2,5,4,6]
+  getObjectID X520LocalityName           = [2,5,4,7]
+  getObjectID X520StateOrProvinceName    = [2,5,4,8]
+  getObjectID X520StreetAddress          = [2,5,4,9]
+  getObjectID X520OrganizationName       = [2,5,4,10]
+  getObjectID X520OrganizationalUnitName = [2,5,4,11]
+  getObjectID X520Title                  = [2,5,4,12]
+  getObjectID X520DNQualifier            = [2,5,4,46]
+  getObjectID X520Pseudonym              = [2,5,4,65]
   getObjectID EmailAddress               = [1,2,840,113549,1,9,1]
   getObjectID IPAddress                  = [1,3,6,1,4,1,42,2,11,2,1]
   getObjectID DomainComponent            = [0,9,2342,19200300,100,1,25]
   getObjectID UserId                     = [0,9,2342,19200300,100,1,1]
+
+instance OIDNameable X520Attribute where
+  fromObjectID [2,5,4,3]                    = Just X520CommonName
+  fromObjectID [2,5,4,5]                    = Just X520SerialNumber
+  fromObjectID [2,5,4,41]                   = Just X520Name
+  fromObjectID [2,5,4,4]                    = Just X520Surname
+  fromObjectID [2,5,4,42]                   = Just X520GivenName
+  fromObjectID [2,5,4,43]                   = Just X520Initials
+  fromObjectID [2,5,4,44]                   = Just X520GenerationQualifier
+  fromObjectID [2,5,4,6]                    = Just X520CountryName
+  fromObjectID [2,5,4,7]                    = Just X520LocalityName
+  fromObjectID [2,5,4,8]                    = Just X520StateOrProvinceName
+  fromObjectID [2,5,4,9]                    = Just X520StreetAddress
+  fromObjectID [2,5,4,10]                   = Just X520OrganizationName
+  fromObjectID [2,5,4,11]                   = Just X520OrganizationalUnitName
+  fromObjectID [2,5,4,12]                   = Just X520Title
+  fromObjectID [2,5,4,46]                   = Just X520DNQualifier
+  fromObjectID [2,5,4,65]                   = Just X520Pseudonym
+  fromObjectID [1,2,840,113549,1,9,1]       = Just EmailAddress
+  fromObjectID [1,3,6,1,4,1,42,2,11,2,1]    = Just IPAddress
+  fromObjectID [0,9,2342,19200300,100,1,25] = Just DomainComponent
+  fromObjectID [0,9,2342,19200300,100,1,1]  = Just UserId
 
 data PKCS9Attribute =
   forall e . (Extension e, Show e, Eq e, Typeable e) => PKCS9Attribute e
@@ -129,9 +148,16 @@ instance ASN1Object CertificationRequest where
        toASN1 sig)
       (End Sequence : xs)
 
-  -- fromASN1 (Start Sequence : xs) = do
-  --   case (liftM3 CertificationRequest <$> fromASN1 <*> fromASN1 <*> fromASN1 $ xs) of
-  --     Left _ -> Left "sss"
+  fromASN1 (Start Sequence : xs) =
+    f $ runParseASN1State p xs
+    where
+      p = CertificationRequest <$> getObject
+                               <*> getObject
+                               <*> getObject
+      f (Right (req, End Sequence : xs)) = Right (req, xs)
+      f (Right xs') =
+        Left ("fromASN1: PKCS9.CertificationRequest: unknown format: " ++ show xs')
+      f (Left e) = Left e
 
   fromASN1 xs =
     Left ("fromASN1: PKCS9.CertificationRequest: unknown format: " ++ show xs)
@@ -163,7 +189,9 @@ instance ASN1Object CertificationRequestInfo where
                                    <*> getObject
                                    <*> getObject
       f (Right (req, End Sequence : xs)) = Right (req, xs)
-      f _ = Left "fromASN1: PKCS9.CertificationRequestInfo: unknown format"
+      f (Right xs') =
+        Left ("fromASN1: PKCS9.CertificationRequestInfo: unknown format: " ++ show xs')
+      f (Left e) = Left e
 
   fromASN1 xs =
     Left ("fromASN1: PKCS9.CertificationRequestInfo: unknown format: " ++ show xs)
@@ -189,7 +217,17 @@ instance ASN1Object X520Attributes where
       oid attr = OID $ getObjectID attr
       cs s = ASN1String $ asn1CharacterString UTF8 s
 
-  -- fromASN1 = undefined
+  fromASN1 (Start Sequence : xs) =
+    f (X520Attributes []) xs
+    where
+      f (X520Attributes attrs) (Start Set : Start Sequence : (OID oid) : (ASN1String cs) : End Sequence : End Set : rest) =
+        case (fromObjectID oid, asn1CharacterToString cs) of
+          (Just attr, Just s) ->
+            f (X520Attributes $ (attr, s) : attrs) rest
+          _ -> Left ("fromASN1: X520.Attributes: unknown oid: " ++ show oid)
+      f attrs (End Sequence : rest) =
+        Right (attrs, rest)
+      f _ xs' = Left ("fromASN1: X520.Attributes: unknown format: " ++ show xs')
 
   fromASN1 xs =
     Left ("fromASN1: X520.Attributes: unknown format: " ++ show xs)
@@ -200,6 +238,34 @@ instance ASN1Object SignatureAlgorithmIdentifier where
 
   fromASN1 =
     runParseASN1State $ SignatureAlgorithmIdentifier <$> getObject
+
+instance ASN1Object PKCS9Attribute where
+  toASN1 (PKCS9Attribute attr) xs =
+    Start Sequence : oid : os : End Sequence : xs
+    where
+      oid = OID $ extOID attr
+      os = (OctetString . encodeASN1' DER . extEncode) attr
+
+  fromASN1 (Start Sequence : OID oid : OctetString os : End Sequence : xs) =
+    case oid of
+      [2,5,29,14] -> f (decode :: Either String ExtSubjectKeyId)
+      [2,5,29,15] -> f (decode :: Either String ExtKeyUsage)
+      [2,5,29,17] -> f (decode :: Either String ExtSubjectAltName)
+      [2,5,29,19] -> f (decode :: Either String ExtBasicConstraints)
+      [2,5,29,31] -> f (decode :: Either String ExtCrlDistributionPoints)
+      [2,5,29,35] -> f (decode :: Either String ExtAuthorityKeyId)
+      [2,5,29,37] -> f (decode :: Either String ExtExtendedKeyUsage)
+      _ -> Left ("fromASN1: PKCS9.Attribute: unknown oid: " ++ show oid)
+    where
+      decode :: forall e . (Extension e, Show e, Eq e, Typeable e) => Either String e
+      decode = case decodeASN1' DER os of
+                 Right ds -> extDecode ds
+                 Left e -> Left $ show e
+      f (Right attr) = Right (PKCS9Attribute attr, xs)
+      f (Left e) = Left ("fromASN1: PKCS9.Attribute: " ++ show e)
+
+  fromASN1 xs =
+    Left ("fromASN1: PKCS9.Attribute: unknown format: " ++ show xs)
 
 extensionRequestOid :: [Integer]
 extensionRequestOid = [1,2,840,113549,1,9,14]
@@ -218,15 +284,26 @@ instance ASN1Object PKCS9Attributes where
                   [End Sequence, End Set, End Sequence]
                 where
                   extOid = OID extensionRequestOid
-                  extSet = concatMap f es
-                  f (PKCS9Attribute a) = [Start Sequence, oid a, os a, End Sequence]
-                  oid a = OID $ extOID a
-                  os a = (OctetString . encodeASN1' DER . extEncode) a
+                  extSet = concatMap (flip toASN1 []) es
 
-  -- fromASN1 = undefined
+  fromASN1 (Start (Container Context 0) : xs) =
+    f xs
+    where
+      f (Start Sequence : (OID extOid) : Start Set : Start Sequence : rest) =
+        g [] rest
+        where
+          g exts (End Sequence : End Set : End Sequence : End (Container Context 0) : rest') =
+            Right (PKCS9Attributes exts, rest')
+          g exts (rest' @ (Start Sequence : _)) =
+            case fromASN1 rest' of
+              Right (attr, xss) -> g (attr : exts) xss
+              Left e -> Left e
+          g _ xs' = Left ("fromASN1: PKCS9.Attribute: unknown format: " ++ show xs')
+      f (End (Container Context 0) : rest) = Right (PKCS9Attributes [], rest)
+      f xs' = Left ("fromASN1: PKCS9.Attributes: unknown format: " ++ show xs')
 
-  fromASN1 _ =
-    Left "fromASN1: PKCS9.Attributes: unknown format"
+  fromASN1 xs =
+    Left ("fromASN1: PKCS9.Attributes: unknown format: " ++ show xs)
 
 readPEMFile file = do
     content <- B.readFile file
