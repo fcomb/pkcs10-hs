@@ -12,6 +12,7 @@ import           Data.ASN1.BinaryEncoding
 import           Data.ASN1.BitArray
 import           Data.ASN1.Encoding
 import           Data.ASN1.OID
+import           Data.ASN1.Parse
 import           Data.ASN1.Types
 import           Data.Bits
 import           Data.ByteArray.Encoding
@@ -128,7 +129,12 @@ instance ASN1Object CertificationRequest where
        toASN1 sig)
       (End Sequence : xs)
 
-  fromASN1 = undefined
+  -- fromASN1 (Start Sequence : xs) = do
+  --   case (liftM3 CertificationRequest <$> fromASN1 <*> fromASN1 <*> fromASN1 $ xs) of
+  --     Left _ -> Left "sss"
+
+  fromASN1 xs =
+    Left ("fromASN1: PKCS9.CertificationRequest: unknown format: " ++ show xs)
 
 instance ASN1Object Signature where
   toASN1 (Signature bs) xs =
@@ -137,8 +143,8 @@ instance ASN1Object Signature where
   fromASN1 (BitString s : xs) =
     Right (Signature $ bitArrayGetData s, xs)
 
-  fromASN1 _ =
-    Left "fromASN1: PKCS9.Signature: unknown format"
+  fromASN1 xs =
+    Left ("fromASN1: PKCS9.Signature: unknown format: " ++ show xs)
 
 instance ASN1Object CertificationRequestInfo where
   toASN1 (CertificationRequestInfo version subject pubKey attributes) xs =
@@ -149,7 +155,18 @@ instance ASN1Object CertificationRequestInfo where
        toASN1 attributes)
       (End Sequence : xs)
 
-  fromASN1 = undefined
+  fromASN1 (Start Sequence : xs) =
+    f $ runParseASN1State p xs
+    where
+      p = CertificationRequestInfo <$> getObject
+                                   <*> getObject
+                                   <*> getObject
+                                   <*> getObject
+      f (Right (req, End Sequence : xs)) = Right (req, xs)
+      f _ = Left "fromASN1: PKCS9.CertificationRequestInfo: unknown format"
+
+  fromASN1 xs =
+    Left ("fromASN1: PKCS9.CertificationRequestInfo: unknown format: " ++ show xs)
 
 instance ASN1Object Version where
   toASN1 (Version v) xs =
@@ -158,8 +175,8 @@ instance ASN1Object Version where
   fromASN1 (IntVal n : xs) =
     Right (Version $ fromIntegral n, xs)
 
-  fromASN1 _ =
-    Left "fromASN1: PKCS9.Version: unknown format"
+  fromASN1 xs =
+    Left ("fromASN1: PKCS9.Version: unknown format: " ++ show xs)
 
 instance ASN1Object X520Attributes where
   toASN1 (X520Attributes attrs) xs =
@@ -172,19 +189,17 @@ instance ASN1Object X520Attributes where
       oid attr = OID $ getObjectID attr
       cs s = ASN1String $ asn1CharacterString UTF8 s
 
-  fromASN1 = undefined
+  -- fromASN1 = undefined
+
+  fromASN1 xs =
+    Left ("fromASN1: X520.Attributes: unknown format: " ++ show xs)
 
 instance ASN1Object SignatureAlgorithmIdentifier where
   toASN1 (SignatureAlgorithmIdentifier sigAlg) =
     toASN1 sigAlg
 
-  fromASN1 = f . sf
-    where
-      sf = fromASN1 :: [ASN1] -> Either String (SignatureALG, [ASN1])
-      f res =
-        case res of
-          Left e -> Left e
-          Right (sa, xs) -> Right (SignatureAlgorithmIdentifier sa, xs)
+  fromASN1 =
+    runParseASN1State $ SignatureAlgorithmIdentifier <$> getObject
 
 extensionRequestOid :: [Integer]
 extensionRequestOid = [1,2,840,113549,1,9,14]
@@ -192,22 +207,26 @@ extensionRequestOid = [1,2,840,113549,1,9,14]
 instance ASN1Object PKCS9Attributes where
   toASN1 (PKCS9Attributes exts) xs =
     Start (Container Context 0) :
-      asnExts ++
+      ctx ++
       End (Container Context 0) : xs
     where
-      asnExts =
-        case exts of
-          [] -> []
-          es ->
-            [Start Sequence, OID extensionRequestOid, Start Set, Start Sequence] ++
-              extSet ++
-              [End Sequence, End Set, End Sequence]
-            where extSet = concatMap f es
+      ctx = case exts of
+              [] -> []
+              es ->
+                [Start Sequence, extOid, Start Set, Start Sequence] ++
+                  extSet ++
+                  [End Sequence, End Set, End Sequence]
+                where
+                  extOid = OID extensionRequestOid
+                  extSet = concatMap f es
                   f (PKCS9Attribute a) = [Start Sequence, oid a, os a, End Sequence]
                   oid a = OID $ extOID a
                   os a = (OctetString . encodeASN1' DER . extEncode) a
 
-  fromASN1 = undefined
+  -- fromASN1 = undefined
+
+  fromASN1 _ =
+    Left "fromASN1: PKCS9.Attributes: unknown format"
 
 readPEMFile file = do
     content <- B.readFile file
@@ -234,4 +253,7 @@ main = do
      let bits = encodeASN1' DER $ reqASN
      B.writeFile "/tmp/pkcs10.der" bits
      B.writeFile "/tmp/pkcs10.pem" $ pemWriteBS PEM { pemName = "CERTIFICATE REQUEST", pemHeader = [], pemContent = bits }
+     let (Right reqAsn) = decodeASN1' DER $ bits
+     let cert = (fromASN1 reqAsn :: Either String (CertificationRequest, [ASN1]))
+     putStrLn $ show cert
      return ()
