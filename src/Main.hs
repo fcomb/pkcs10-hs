@@ -19,7 +19,7 @@ import qualified Data.ByteString          as B
 import qualified Data.ByteString.Base64   as Base64
 import qualified Data.ByteString.Char8    as BC
 import qualified Data.ByteString.Lazy     as L
-import           Data.PEM                 (pemContent, pemName, pemParseBS)
+import           Data.PEM
 import           Data.Typeable
 import           Data.X509
 import           Data.X509.File
@@ -84,7 +84,8 @@ instance OIDable X520Attribute where
 data PKCS9Attribute =
   forall e . (Extension e, Show e, Eq e, Typeable e) => PKCS9Attribute e
 
-newtype PKCS9Attributes = PKCS9Attributes [PKCS9Attribute] deriving (Show, Eq)
+newtype PKCS9Attributes =
+  PKCS9Attributes [PKCS9Attribute] deriving (Show, Eq)
 
 instance Show PKCS9Attribute where
   show (PKCS9Attribute e) = show e
@@ -93,10 +94,7 @@ instance Eq PKCS9Attribute where
    (PKCS9Attribute x) == (PKCS9Attribute y) =
      case cast y of
        Just y' -> x == y'
-       _ -> False
-
-instance OIDable PKCS9Attributes where
-  getObjectID _ = [1,2,840,113549,1,9,14]
+       Nothing -> False
 
 newtype X520Attributes =
         X520Attributes [(X520Attribute, String)] deriving (Show, Eq)
@@ -156,7 +154,7 @@ instance ASN1Object Version where
   fromASN1 = undefined
 
 instance ASN1Object X520Attributes where
-  toASN1 (X520Attributes attrs) xs = do
+  toASN1 (X520Attributes attrs) xs =
     Start Sequence :
       attrSet ++
       End Sequence : xs
@@ -172,10 +170,19 @@ instance ASN1Object SignatureAlgorithmIdentifier where
   toASN1 (SignatureAlgorithmIdentifier sigAlg) =
     toASN1 sigAlg
 
-  fromASN1 = undefined
+  fromASN1 = f . sf
+    where
+      sf = fromASN1 :: [ASN1] -> Either String (SignatureALG, [ASN1])
+      f res =
+        case res of
+          Left e -> Left e
+          Right (sa, xs) -> Right (SignatureAlgorithmIdentifier sa, xs)
+
+extensionRequestOid :: [Integer]
+extensionRequestOid = [1,2,840,113549,1,9,14]
 
 instance ASN1Object PKCS9Attributes where
-  toASN1 r @ (PKCS9Attributes exts) xs =
+  toASN1 (PKCS9Attributes exts) xs =
     Start (Container Context 0) :
       asnExts ++
       End (Container Context 0) : xs
@@ -184,7 +191,7 @@ instance ASN1Object PKCS9Attributes where
         case exts of
           [] -> []
           es ->
-            [Start Sequence, OID $ getObjectID r, Start Set, Start Sequence] ++
+            [Start Sequence, OID extensionRequestOid, Start Set, Start Sequence] ++
               extSet ++
               [End Sequence, End Set, End Sequence]
             where extSet = concatMap f es
@@ -218,4 +225,5 @@ main = do
      let reqASN = toASN1 req []
      let bits = encodeASN1' DER $ reqASN
      B.writeFile "/tmp/pkcs10.der" bits
+     B.writeFile "/tmp/pkcs10.pem" $ pemWriteBS PEM { pemName = "CERTIFICATE REQUEST", pemHeader = [], pemContent = bits }
      return ()
