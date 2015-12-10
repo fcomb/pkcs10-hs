@@ -151,7 +151,11 @@ instance ASN1Object Version where
   toASN1 (Version v) xs =
     (IntVal $ fromIntegral v) : xs
 
-  fromASN1 = undefined
+  fromASN1 (IntVal n : xs) =
+    Right (Version $ fromIntegral n, xs)
+
+  fromASN1 _ =
+    Left "fromASN1: PKCS9.Version: unknown format"
 
 instance ASN1Object X520Attributes where
   toASN1 (X520Attributes attrs) xs =
