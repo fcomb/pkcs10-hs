@@ -8,6 +8,7 @@ import           Control.Monad
 import           Crypto.Hash
 import qualified Crypto.PubKey.RSA        as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as RSA
+import           Crypto.Random            (MonadRandom)
 import           Data.ASN1.BinaryEncoding
 import           Data.ASN1.BitArray
 import           Data.ASN1.Encoding
@@ -309,28 +310,43 @@ readPEMFile file = do
     content <- B.readFile file
     return $ either error id $ pemParseBS content
 
+encodeDER :: ASN1Object o => o -> BC.ByteString
+encodeDER = encodeASN1' DER . flip toASN1 []
+
+decodeDER :: ASN1Object o => BC.ByteString -> Either String (o, [ASN1])
+decodeDER bs =
+  f asn
+  where
+    asn = fromASN1 <$> decodeASN1' DER bs
+    f = either (Left . show) id
+
+generateCSR :: MonadRandom m => X520Attributes -> PKCS9Attributes -> RSA.PrivateKey -> RSA.PublicKey -> m (Either String BC.ByteString)
+generateCSR subject extAttrs privKey pubKey =
+  f <$> signature
+  where
+    f = either (Left . show) (Right . encodeDER . genReq)
+    certReq = CertificationRequestInfo {
+                version = Version 0
+                , subject = subject
+                , subjectPublicKeyInfo = PubKeyRSA pubKey
+                , attributes = extAttrs
+              }
+    signature = RSA.signSafer (Just SHA256) privKey $ encodeDER certReq
+    genReq s = CertificationRequest {
+                 certificationRequestInfo = certReq
+                 , signatureAlgorithm = SignatureAlgorithmIdentifier (SignatureALG HashSHA256 PubKeyALG_RSA)
+                 , signature = Signature s
+               }
+
 main :: IO ()
 main = do
      (pubKey, privKey) <- RSA.generate rsaKeySize publicExponent
-
-     let certificationRequestInfo = CertificationRequestInfo {
-       version = Version 0
-       , subject = X520Attributes [(X520CommonName, "node.fcomb.io"), (X520OrganizationName, "fcomb")]
-       , subjectPublicKeyInfo = PubKeyRSA pubKey
-       , attributes = PKCS9Attributes [PKCS9Attribute $ ExtExtendedKeyUsage [KeyUsagePurpose_ServerAuth, KeyUsagePurpose_CodeSigning], PKCS9Attribute $ ExtKeyUsage [KeyUsage_cRLSign, KeyUsage_digitalSignature]]
-     }
-     let scratch = encodeASN1' DER $ toASN1 certificationRequestInfo []
-     Right signature <- RSA.signSafer (Just SHA256) privKey scratch
-     let req = CertificationRequest {
-       certificationRequestInfo = certificationRequestInfo
-       , signatureAlgorithm = SignatureAlgorithmIdentifier (SignatureALG HashSHA256 PubKeyALG_RSA)
-       , signature = Signature signature
-     }
-     let reqASN = toASN1 req []
-     let bits = encodeASN1' DER $ reqASN
+     let subject = X520Attributes [(X520CommonName, "node.fcomb.io"), (X520OrganizationName, "fcomb")]
+     let extAttrs = PKCS9Attributes [PKCS9Attribute $ ExtExtendedKeyUsage [KeyUsagePurpose_ServerAuth, KeyUsagePurpose_CodeSigning], PKCS9Attribute $ ExtKeyUsage [KeyUsage_cRLSign, KeyUsage_digitalSignature]]
+     Right bits <- generateCSR subject extAttrs privKey pubKey
      B.writeFile "/tmp/pkcs10.der" bits
      B.writeFile "/tmp/pkcs10.pem" $ pemWriteBS PEM { pemName = "CERTIFICATE REQUEST", pemHeader = [], pemContent = bits }
-     let (Right reqAsn) = decodeASN1' DER $ bits
-     let cert = (fromASN1 reqAsn :: Either String (CertificationRequest, [ASN1]))
-     putStrLn $ show cert
+     let (req) = case decodeDER bits of
+                   Right (req @ CertificationRequest {}, _) -> req
+     putStrLn $ show req
      return ()
