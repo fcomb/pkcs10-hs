@@ -11,13 +11,13 @@ module Data.X509.PKCS10
       , Version(..)
       , Signature(..)
       , HashAlgorithmConversion(..)
+      , KeyPair(..)
       , generateCSR
       , decodeDER
     ) where
 
-import           Control.Applicative      ((<$>), (<*>))
-import           Control.Monad
 import           Crypto.Hash
+import qualified Crypto.PubKey.DSA        as DSA
 import qualified Crypto.PubKey.RSA        as RSA
 import qualified Crypto.PubKey.RSA.PKCS15 as RSA
 import           Crypto.Random            (MonadRandom)
@@ -27,19 +27,20 @@ import           Data.ASN1.Encoding
 import           Data.ASN1.OID
 import           Data.ASN1.Parse
 import           Data.ASN1.Types
-import           Data.Bits
-import           Data.ByteArray.Encoding
 import qualified Data.ByteString          as B
-import qualified Data.ByteString.Base64   as Base64
 import qualified Data.ByteString.Char8    as BC
-import qualified Data.ByteString.Lazy     as L
-import           Data.PEM
+-- import           Data.PEM
 import           Data.Typeable
 import           Data.X509
-import           Data.X509.File
-import           Data.X509.Memory
-import           Numeric
-import           Text.Printf
+
+instance ASN1Object DSA.Signature where
+  toASN1 DSA.Signature { DSA.sign_r = r, DSA.sign_s = s } xs =
+    Start Sequence : IntVal r : IntVal s : End Sequence : xs
+
+  fromASN1 (Start Sequence : IntVal r : IntVal s : End Sequence : xs) =
+    Right (DSA.Signature { DSA.sign_r = r, DSA.sign_s = s }, xs)
+
+  fromASN1 _ = Left "fromASN1: DSA.Signature: unknown format"
 
 data X520Attribute =
      X520CommonName
@@ -107,6 +108,7 @@ instance OIDNameable X520Attribute where
   fromObjectID [1,3,6,1,4,1,42,2,11,2,1]    = Just IPAddress
   fromObjectID [0,9,2342,19200300,100,1,25] = Just DomainComponent
   fromObjectID [0,9,2342,19200300,100,1,1]  = Just UserId
+  fromObjectID _                            = Nothing
 
 data PKCS9Attribute =
   forall e . (Extension e, Show e, Eq e, Typeable e) => PKCS9Attribute e
@@ -286,10 +288,18 @@ instance ASN1Object PKCS9Attributes where
   fromASN1 (Start (Container Context 0) : xs) =
     f xs
     where
-      f (Start Sequence : (OID extOid) : Start Set : Start Sequence : rest) =
+      f (Start Sequence :
+         (OID extOid) :
+         Start Set :
+         Start Sequence :
+         rest) | extOid == extensionRequestOid =
         g [] rest
         where
-          g exts (End Sequence : End Set : End Sequence : End (Container Context 0) : rest') =
+          g exts (End Sequence :
+                  End Set :
+                  End Sequence :
+                  End (Container Context 0) :
+                  rest') =
             Right (PKCS9Attributes exts, rest')
           g exts (rest' @ (Start Sequence : _)) =
             case fromASN1 rest' of
@@ -326,9 +336,9 @@ instance HashAlgorithmConversion SHA384 where
 instance HashAlgorithmConversion SHA512 where
   fromHashAlgorithmASN1 SHA512 = HashSHA512
 
-readPEMFile file = do
-    content <- B.readFile file
-    return $ either error id $ pemParseBS content
+-- readPEMFile file = do
+--     content <- B.readFile file
+--     return $ either error id $ pemParseBS content
 
 encodeDER :: ASN1Object o => o -> BC.ByteString
 encodeDER = encodeASN1' DER . flip toASN1 []
@@ -340,21 +350,42 @@ decodeDER bs =
     asn = fromASN1 <$> decodeASN1' DER bs
     f = either (Left . show) id
 
-generateCSR :: (MonadRandom m, HashAlgorithmConversion hashAlg) => X520Attributes -> PKCS9Attributes -> PubKey -> PrivKey -> hashAlg -> m (Either String BC.ByteString)
-generateCSR subject extAttrs (PubKeyRSA pubKey) (PrivKeyRSA privKey) hashAlg =
-  f <$> signature
+data KeyPair =
+  KeyPairRSA RSA.PublicKey RSA.PrivateKey
+  | KeyPairDSA DSA.PublicKey DSA.PrivateKey
+  deriving (Show, Eq)
+
+makeCertReqInfo :: X520Attributes -> PKCS9Attributes -> PubKey -> CertificationRequestInfo
+makeCertReqInfo subject extAttrs pubKey =
+  CertificationRequestInfo {
+    version = Version 0
+    , subject = subject
+    , subjectPublicKeyInfo = pubKey
+    , attributes = extAttrs
+  }
+
+makeCertReq :: HashAlgorithmConversion hashAlg => CertificationRequestInfo -> BC.ByteString -> hashAlg -> PubKeyALG -> CertificationRequest
+makeCertReq certReq sig hashAlg pubKeyAlg =
+  CertificationRequest {
+    certificationRequestInfo = certReq
+    , signatureAlgorithm = SignatureALG (fromHashAlgorithmASN1 hashAlg) pubKeyAlg
+    , signature = Signature sig
+  }
+
+generateCSR :: (MonadRandom m, HashAlgorithmConversion hashAlg, HashAlgorithm hashAlg) => X520Attributes -> PKCS9Attributes -> KeyPair -> hashAlg -> m (Either String BC.ByteString)
+
+generateCSR subject extAttrs (KeyPairRSA pubKey privKey) hashAlg =
+  f <$> sign certReqInfo
   where
-    f = either (Left . show) (Right . encodeDER . genReq)
-    certReq = CertificationRequestInfo {
-                version = Version 0
-                , subject = subject
-                , subjectPublicKeyInfo = PubKeyRSA pubKey
-                , attributes = extAttrs
-              }
-    signature = RSA.signSafer (Just hashAlg) privKey $ encodeDER certReq
-    sigAlg = fromHashAlgorithmASN1 hashAlg
-    genReq s = CertificationRequest {
-                 certificationRequestInfo = certReq
-                 , signatureAlgorithm = SignatureALG sigAlg PubKeyALG_RSA
-                 , signature = Signature s
-               }
+    certReqInfo = makeCertReqInfo subject extAttrs $ PubKeyRSA pubKey
+    sign = RSA.signSafer (Just hashAlg) privKey . encodeDER
+    f = either (Left . show) (Right . encodeDER . certReq)
+    certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_RSA
+
+generateCSR subject extAttrs (KeyPairDSA pubKey privKey) hashAlg =
+  f <$> sign certReqInfo
+  where
+    certReqInfo = makeCertReqInfo subject extAttrs $ PubKeyDSA pubKey
+    sign = DSA.sign privKey hashAlg . encodeDER
+    f = Right . encodeDER . certReq . encodeASN1' DER . flip toASN1 []
+    certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_DSA
