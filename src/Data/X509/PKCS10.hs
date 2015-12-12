@@ -10,9 +10,9 @@ module Data.X509.PKCS10
       , CertificationRequest(..)
       , Version(..)
       , Signature(..)
-      , HashAlgorithmConversion(..)
       , KeyPair(..)
       , generateCSR
+      , verify
       , toDER
       , fromDER
       , toPEM
@@ -37,15 +37,6 @@ import qualified Data.ByteString.Char8    as BC
 import           Data.PEM
 import           Data.Typeable
 import           Data.X509
-
-instance ASN1Object DSA.Signature where
-  toASN1 DSA.Signature { DSA.sign_r = r, DSA.sign_s = s } xs =
-    Start Sequence : IntVal r : IntVal s : End Sequence : xs
-
-  fromASN1 (Start Sequence : IntVal r : IntVal s : End Sequence : xs) =
-    Right (DSA.Signature { DSA.sign_r = r, DSA.sign_s = s }, xs)
-
-  fromASN1 _ = Left "fromASN1: DSA.Signature: unknown format"
 
 data X520Attribute =
      X520CommonName
@@ -373,6 +364,15 @@ makeCertReq certReq sig hashAlg pubKeyAlg =
     , signature = Signature sig
   }
 
+instance ASN1Object DSA.Signature where
+  toASN1 DSA.Signature { DSA.sign_r = r, DSA.sign_s = s } xs =
+    Start Sequence : IntVal r : IntVal s : End Sequence : xs
+
+  fromASN1 (Start Sequence : IntVal r : IntVal s : End Sequence : xs) =
+    Right (DSA.Signature { DSA.sign_r = r, DSA.sign_s = s }, xs)
+
+  fromASN1 _ = Left "fromASN1: DSA.Signature: unknown format"
+
 generateCSR :: (MonadRandom m, HashAlgorithmConversion hashAlg, HashAlgorithm hashAlg) => X520Attributes -> PKCS9Attributes -> KeyPair -> hashAlg -> m (Either String CertificationRequest)
 
 generateCSR subject extAttrs (KeyPairRSA pubKey privKey) hashAlg =
@@ -390,6 +390,36 @@ generateCSR subject extAttrs (KeyPairDSA pubKey privKey) hashAlg =
     sign = DSA.sign privKey hashAlg . encodeDER
     f = Right . certReq . encodeDER
     certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_DSA
+
+verify :: CertificationRequest -> PubKey -> Bool
+verify (req @ CertificationRequest {
+                signatureAlgorithm = SignatureALG hashAlg PubKeyALG_RSA
+              , signature = Signature sm
+              })
+       (PubKeyRSA pubKey) =
+  rsaVerify hashAlg pubKey m sm
+  where
+    m = encodeDER . certificationRequestInfo $ req
+    rsaVerify HashMD2 = RSA.verify (Just MD2)
+    rsaVerify HashMD5 = RSA.verify (Just MD5)
+    rsaVerify HashSHA1 = RSA.verify (Just SHA1)
+    rsaVerify HashSHA224 = RSA.verify (Just SHA224)
+    rsaVerify HashSHA256 = RSA.verify (Just SHA256)
+    rsaVerify HashSHA384 = RSA.verify (Just SHA384)
+    rsaVerify HashSHA512 = RSA.verify (Just SHA512)
+
+verify (req @ CertificationRequest {
+                signatureAlgorithm = SignatureALG HashSHA1 PubKeyALG_DSA
+              , signature = Signature sm
+              })
+       (PubKeyDSA pubKey) =
+  case decodeDER sm of
+    Right (dsaSig, _) -> DSA.verify SHA1 pubKey dsaSig m
+    _ -> False
+  where
+    m = encodeDER . certificationRequestInfo $ req
+
+verify _ _ = False
 
 toDER :: CertificationRequest -> BC.ByteString
 toDER = encodeDER
