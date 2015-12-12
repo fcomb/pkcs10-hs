@@ -11,6 +11,8 @@ module Data.X509.PKCS10
       , Version(..)
       , Signature(..)
       , HashAlgorithmConversion(..)
+      , generateCSR
+      , decodeDER
     ) where
 
 import           Control.Applicative      ((<$>), (<*>))
@@ -323,3 +325,36 @@ instance HashAlgorithmConversion SHA384 where
 
 instance HashAlgorithmConversion SHA512 where
   fromHashAlgorithmASN1 SHA512 = HashSHA512
+
+readPEMFile file = do
+    content <- B.readFile file
+    return $ either error id $ pemParseBS content
+
+encodeDER :: ASN1Object o => o -> BC.ByteString
+encodeDER = encodeASN1' DER . flip toASN1 []
+
+decodeDER :: ASN1Object o => BC.ByteString -> Either String (o, [ASN1])
+decodeDER bs =
+  f asn
+  where
+    asn = fromASN1 <$> decodeASN1' DER bs
+    f = either (Left . show) id
+
+generateCSR :: (MonadRandom m, HashAlgorithmConversion hashAlg) => X520Attributes -> PKCS9Attributes -> PubKey -> PrivKey -> hashAlg -> m (Either String BC.ByteString)
+generateCSR subject extAttrs (PubKeyRSA pubKey) (PrivKeyRSA privKey) hashAlg =
+  f <$> signature
+  where
+    f = either (Left . show) (Right . encodeDER . genReq)
+    certReq = CertificationRequestInfo {
+                version = Version 0
+                , subject = subject
+                , subjectPublicKeyInfo = PubKeyRSA pubKey
+                , attributes = extAttrs
+              }
+    signature = RSA.signSafer (Just hashAlg) privKey $ encodeDER certReq
+    sigAlg = fromHashAlgorithmASN1 hashAlg
+    genReq s = CertificationRequest {
+                 certificationRequestInfo = certReq
+                 , signatureAlgorithm = SignatureALG sigAlg PubKeyALG_RSA
+                 , signature = Signature s
+               }
