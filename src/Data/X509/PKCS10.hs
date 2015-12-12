@@ -1,5 +1,4 @@
 {-# LANGUAGE ExistentialQuantification #-}
-{-# LANGUAGE OverloadedStrings         #-}
 
 module Data.X509.PKCS10
     ( X520Attribute(..)
@@ -18,7 +17,6 @@ module Data.X509.PKCS10
       , toPEM
       , toNewFormatPEM
       , fromPEM
-      , decodeDER
     ) where
 
 import           Crypto.Hash
@@ -227,7 +225,8 @@ instance ASN1Object X520Attributes where
           (Just attr, Just s) ->
             f (X520Attributes $ (attr, s) : attrs) rest
           _ -> Left "fromASN1: X520.Attributes: unknown oid"
-      f attrs (End Sequence : rest) = Right (attrs, rest)
+      f (X520Attributes attrs) (End Sequence : rest) =
+        Right (X520Attributes $ reverse attrs, rest)
       f _ _ = Left "fromASN1: X520.Attributes: unknown format"
 
   fromASN1 _ = Left "fromASN1: X520.Attributes: unknown format"
@@ -293,7 +292,7 @@ instance ASN1Object PKCS9Attributes where
                   End Sequence :
                   End (Container Context 0) :
                   rest') =
-            Right (PKCS9Attributes exts, rest')
+            Right (PKCS9Attributes $ reverse exts, rest')
           g exts (rest' @ (Start Sequence : _)) =
             case fromASN1 rest' of
               Right (attr, xss) -> g (attr : exts) xss
