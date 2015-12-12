@@ -14,8 +14,10 @@ module Data.X509.PKCS10
       , KeyPair(..)
       , generateCSR
       , toDER
+      , fromDER
       , toPEM
       , toNewFormatPEM
+      , fromPEM
       , decodeDER
     ) where
 
@@ -339,10 +341,6 @@ instance HashAlgorithmConversion SHA384 where
 instance HashAlgorithmConversion SHA512 where
   fromHashAlgorithmASN1 SHA512 = HashSHA512
 
--- readPEMFile file = do
---     content <- B.readFile file
---     return $ either error id $ pemParseBS content
-
 encodeDER :: ASN1Object o => o -> BC.ByteString
 encodeDER = encodeASN1' DER . flip toASN1 []
 
@@ -396,16 +394,31 @@ generateCSR subject extAttrs (KeyPairDSA pubKey privKey) hashAlg =
 toDER :: CertificationRequest -> BC.ByteString
 toDER = encodeDER
 
+requestHeader :: String
+requestHeader = "CERTIFICATE REQUEST"
+
 toPEM :: CertificationRequest -> PEM
 toPEM req = PEM {
-  pemName = "CERTIFICATE REQUEST"
+  pemName = requestHeader
   , pemHeader = []
   , pemContent = toDER req
 }
 
+newFormatRequestHeader :: String
+newFormatRequestHeader = "NEW CERTIFICATE REQUEST"
+
 toNewFormatPEM :: CertificationRequest -> PEM
 toNewFormatPEM req = PEM {
-  pemName = "NEW CERTIFICATE REQUEST"
+  pemName = newFormatRequestHeader
   , pemHeader = []
   , pemContent = toDER req
 }
+
+fromDER :: BC.ByteString -> Either String CertificationRequest
+fromDER = either Left (Right . fst) . decodeDER
+
+fromPEM :: PEM -> Either String CertificationRequest
+fromPEM p =
+  if pemName p == requestHeader || pemName p == newFormatRequestHeader
+  then fromDER . pemContent $ p
+  else Left "PEM: unknown format"
