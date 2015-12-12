@@ -157,12 +157,10 @@ instance ASN1Object CertificationRequest where
                                <*> getObject
                                <*> getObject
       f (Right (req, End Sequence : xs)) = Right (req, xs)
-      f (Right xs') =
-        Left ("fromASN1: PKCS9.CertificationRequest: unknown format: " ++ show xs')
+      f (Right _) = Left "fromASN1: PKCS9.CertificationRequest: unknown format"
       f (Left e) = Left e
 
-  fromASN1 xs =
-    Left ("fromASN1: PKCS9.CertificationRequest: unknown format: " ++ show xs)
+  fromASN1 _ = Left "fromASN1: PKCS9.CertificationRequest: unknown format"
 
 instance ASN1Object Signature where
   toASN1 (Signature bs) xs =
@@ -171,8 +169,7 @@ instance ASN1Object Signature where
   fromASN1 (BitString s : xs) =
     Right (Signature $ bitArrayGetData s, xs)
 
-  fromASN1 xs =
-    Left ("fromASN1: PKCS9.Signature: unknown format: " ++ show xs)
+  fromASN1 _ = Left "fromASN1: PKCS9.Signature: unknown format"
 
 instance ASN1Object CertificationRequestInfo where
   toASN1 (CertificationRequestInfo version subject pubKey attributes) xs =
@@ -191,12 +188,10 @@ instance ASN1Object CertificationRequestInfo where
                                    <*> getObject
                                    <*> getObject
       f (Right (req, End Sequence : xs)) = Right (req, xs)
-      f (Right xs') =
-        Left ("fromASN1: PKCS9.CertificationRequestInfo: unknown format: " ++ show xs')
+      f (Right _) = Left "fromASN1: PKCS9.CertificationRequestInfo: unknown format"
       f (Left e) = Left e
 
-  fromASN1 xs =
-    Left ("fromASN1: PKCS9.CertificationRequestInfo: unknown format: " ++ show xs)
+  fromASN1 _ = Left "fromASN1: PKCS9.CertificationRequestInfo: unknown format"
 
 instance ASN1Object Version where
   toASN1 (Version v) xs =
@@ -205,8 +200,7 @@ instance ASN1Object Version where
   fromASN1 (IntVal n : xs) =
     Right (Version $ fromIntegral n, xs)
 
-  fromASN1 xs =
-    Left ("fromASN1: PKCS9.Version: unknown format: " ++ show xs)
+  fromASN1 _ = Left "fromASN1: PKCS9.Version: unknown format"
 
 instance ASN1Object X520Attributes where
   toASN1 (X520Attributes attrs) xs =
@@ -222,17 +216,21 @@ instance ASN1Object X520Attributes where
   fromASN1 (Start Sequence : xs) =
     f (X520Attributes []) xs
     where
-      f (X520Attributes attrs) (Start Set : Start Sequence : (OID oid) : (ASN1String cs) : End Sequence : End Set : rest) =
+      f (X520Attributes attrs) (Start Set :
+                                Start Sequence :
+                                (OID oid) :
+                                (ASN1String cs) :
+                                End Sequence :
+                                End Set :
+                                rest) =
         case (fromObjectID oid, asn1CharacterToString cs) of
           (Just attr, Just s) ->
             f (X520Attributes $ (attr, s) : attrs) rest
-          _ -> Left ("fromASN1: X520.Attributes: unknown oid: " ++ show oid)
-      f attrs (End Sequence : rest) =
-        Right (attrs, rest)
-      f _ xs' = Left ("fromASN1: X520.Attributes: unknown format: " ++ show xs')
+          _ -> Left "fromASN1: X520.Attributes: unknown oid"
+      f attrs (End Sequence : rest) = Right (attrs, rest)
+      f _ _ = Left "fromASN1: X520.Attributes: unknown format"
 
-  fromASN1 xs =
-    Left ("fromASN1: X520.Attributes: unknown format: " ++ show xs)
+  fromASN1 _ = Left "fromASN1: X520.Attributes: unknown format"
 
 instance ASN1Object PKCS9Attribute where
   toASN1 (PKCS9Attribute attr) xs =
@@ -250,17 +248,16 @@ instance ASN1Object PKCS9Attribute where
       [2,5,29,31] -> f (decode :: Either String ExtCrlDistributionPoints)
       [2,5,29,35] -> f (decode :: Either String ExtAuthorityKeyId)
       [2,5,29,37] -> f (decode :: Either String ExtExtendedKeyUsage)
-      _ -> Left ("fromASN1: PKCS9.Attribute: unknown oid: " ++ show oid)
+      _ -> Left "fromASN1: PKCS9.Attribute: unknown oid"
     where
       decode :: forall e . (Extension e, Show e, Eq e, Typeable e) => Either String e
       decode = case decodeASN1' DER os of
                  Right ds -> extDecode ds
                  Left e -> Left $ show e
       f (Right attr) = Right (PKCS9Attribute attr, xs)
-      f (Left e) = Left ("fromASN1: PKCS9.Attribute: " ++ show e)
+      f (Left e) = Left e
 
-  fromASN1 xs =
-    Left ("fromASN1: PKCS9.Attribute: unknown format: " ++ show xs)
+  fromASN1 _ = Left "fromASN1: PKCS9.Attribute: unknown format"
 
 extensionRequestOid :: [Integer]
 extensionRequestOid = [1,2,840,113549,1,9,14]
@@ -301,12 +298,11 @@ instance ASN1Object PKCS9Attributes where
             case fromASN1 rest' of
               Right (attr, xss) -> g (attr : exts) xss
               Left e -> Left e
-          g _ xs' = Left ("fromASN1: PKCS9.Attribute: unknown format: " ++ show xs')
+          g _ _ = Left "fromASN1: PKCS9.Attribute: unknown format"
       f (End (Container Context 0) : rest') = Right (PKCS9Attributes [], rest')
-      f xs' = Left ("fromASN1: PKCS9.Attributes: unknown format: " ++ show xs')
+      f _ = Left "fromASN1: PKCS9.Attributes: unknown format"
 
-  fromASN1 xs =
-    Left ("fromASN1: PKCS9.Attributes: unknown format: " ++ show xs)
+  fromASN1 _ = Left "fromASN1: PKCS9.Attributes: unknown format"
 
 class RSA.HashAlgorithmASN1 a => HashAlgorithmConversion a where
   fromHashAlgorithmASN1 :: a -> HashALG

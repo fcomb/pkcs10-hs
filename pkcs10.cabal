@@ -2,15 +2,16 @@ name:                pkcs10
 version:             0.1.0.0
 synopsis:            PKCS#10 library
 description:         Please see README.md
-homepage:            http://github.com/TimothyKlim/pkcs10-hs#readme
+homepage:            http://github.com/fcomb/pkcs10-hs#readme
 license:             Apache-2.0
 license-file:        LICENSE
-author:              Timothy Klim
-maintainer:          github@timothyklim.com
-copyright:           2015 Timothy Klim
-category:            Crypto
+author:              Timothy Klim <hackage@timothyklim.com>
+maintainer:          Timothy Klim <hackage@timothyklim.com>
+copyright:           Timothy Klim <hackage@timothyklim.com>
+category:            Data
 build-type:          Simple
 cabal-version:       >=1.10
+stability:           experimental
 
 library
   ghc-options:         -W
@@ -19,11 +20,9 @@ library
   default-language:    Haskell2010
   build-depends:       base >= 4.7 && < 5
                      , bytestring
-                     , base64-bytestring
                      , containers
                      , memory
                      , x509
-                     , x509-store
                      , cryptonite
                      , pem
                      , asn1-types
@@ -43,3 +42,7 @@ test-suite tests
                      , cryptonite
                      , pem
                      , x509
+
+source-repository head
+  type:     git
+  location: git://github.com/fcomb/pkcs10-hs

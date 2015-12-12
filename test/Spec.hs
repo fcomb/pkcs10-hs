@@ -4,9 +4,10 @@
 module Main where
 
 import           Crypto.Hash
-import qualified Crypto.PubKey.DSA as DSA
-import qualified Crypto.PubKey.RSA as RSA
-import qualified Data.ByteString   as B
+import qualified Crypto.PubKey.DSA     as DSA
+import qualified Crypto.PubKey.RSA     as RSA
+import qualified Data.ByteString       as B
+import qualified Data.ByteString.Char8 as BC
 import           Data.PEM
 import           Data.X509
 import           Data.X509.PKCS10
@@ -34,16 +35,14 @@ main = do
                  , DSA.params_q = 0xf85f0f83ac4df7ea0cdf8f469bfeeaea14156495
                    }
   let dsaPubKey = DSA.PublicKey
-                    { DSA.public_y       = 0xa01542c3da410dd57930ca724f0f507c4df43d553c7f69459939685941ceb95c7dcc3f175a403b359621c0d4328e98f15f330a63865baf3e7eb1604a0715e16eed64fd14b35d3a534259a6a7ddf888c4dbb5f51bbc6ed339e5bb2a239d5cfe2100ac8e2f9c16e536f25119ab435843af27dc33414a9e4602f96d7c94d6021cec
+                    { DSA.public_y = 0xa01542c3da410dd57930ca724f0f507c4df43d553c7f69459939685941ceb95c7dcc3f175a403b359621c0d4328e98f15f330a63865baf3e7eb1604a0715e16eed64fd14b35d3a534259a6a7ddf888c4dbb5f51bbc6ed339e5bb2a239d5cfe2100ac8e2f9c16e536f25119ab435843af27dc33414a9e4602f96d7c94d6021cec
                       , DSA.public_params = dsaParams
                     }
-  dsaPrivNumber <- DSA.generatePrivate dsaParams
   let dsaPrivKey = DSA.PrivateKey
-                         { DSA.private_x      = dsaPrivNumber
+                         { DSA.private_x      = 0xae56f66b0a9405b9cca54c60ec4a3bb5f8be7c3f
                            , DSA.private_params = dsaParams
                          }
   Right dsaCSR <- generateCSR subject extAttrs (KeyPairDSA dsaPubKey dsaPrivKey) SHA1
   B.writeFile "/tmp/pkcs10-dsa.pem" $ (pemWriteBS . toNewFormatPEM) dsaCSR
   putStrLn $ show $ either (const CertificationRequest {}) fst $ (decodeDER . toDER) dsaCSR
   putStrLn $ show $ verify dsaCSR $ PubKeyDSA dsaPubKey
-  return ()
