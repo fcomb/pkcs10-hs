@@ -22,10 +22,9 @@ main = do
   (pubKey, privKey) <- RSA.generate rsaKeySize publicExponent
   let subject = X520Attributes [(X520CommonName, "node.fcomb.io"), (X520OrganizationName, "fcomb")]
   let extAttrs = PKCS9Attributes [PKCS9Attribute $ ExtExtendedKeyUsage [KeyUsagePurpose_ServerAuth, KeyUsagePurpose_CodeSigning], PKCS9Attribute $ ExtKeyUsage [KeyUsage_cRLSign, KeyUsage_digitalSignature]]
-  Right bits <- generateCSR subject extAttrs (KeyPairRSA pubKey privKey) SHA512
-  B.writeFile "/tmp/pkcs10.der" bits
-  B.writeFile "/tmp/pkcs10.pem" $ pemWriteBS PEM { pemName = "NEW CERTIFICATE REQUEST", pemHeader = [], pemContent = bits }
-  putStrLn $ show $ either (const CertificationRequest {}) fst $ decodeDER bits
+  Right rsaCSR <- generateCSR subject extAttrs (KeyPairRSA pubKey privKey) SHA512
+  B.writeFile "/tmp/pkcs10.pem" $ (pemWriteBS . toNewFormatPEM) rsaCSR
+  putStrLn $ show $ either (const CertificationRequest {}) fst $ (decodeDER . toDER) rsaCSR
 
   let dsaParams = DSA.Params
                    { DSA.params_p = 0xa8f9cd201e5e35d892f85f80e4db2599a5676a3b1d4f190330ed3256b26d0e80a0e49a8fffaaad2a24f472d2573241d4d6d6c7480c80b4c67bb4479c15ada7ea8424d2502fa01472e760241713dab025ae1b02e1703a1435f62ddf4ee4c1b664066eb22f2e3bf28bb70a2a76e4fd5ebe2d1229681b5b06439ac9c7e9d8bde283
@@ -41,8 +40,7 @@ main = do
                          { DSA.private_x      = dsaPrivNumber
                            , DSA.private_params = dsaParams
                          }
-  Right dsaBits <- generateCSR subject extAttrs (KeyPairDSA dsaPubKey dsaPrivKey) SHA1
-  B.writeFile "/tmp/pkcs10-dsa.der" dsaBits
-  B.writeFile "/tmp/pkcs10-dsa.pem" $ pemWriteBS PEM { pemName = "NEW CERTIFICATE REQUEST", pemHeader = [], pemContent = dsaBits }
-  putStrLn $ show $ either (const CertificationRequest {}) fst $ decodeDER dsaBits
+  Right dsaCSR <- generateCSR subject extAttrs (KeyPairDSA dsaPubKey dsaPrivKey) SHA1
+  B.writeFile "/tmp/pkcs10-dsa.pem" $ (pemWriteBS . toNewFormatPEM) dsaCSR
+  putStrLn $ show $ either (const CertificationRequest {}) fst $ (decodeDER . toDER) dsaCSR
   return ()

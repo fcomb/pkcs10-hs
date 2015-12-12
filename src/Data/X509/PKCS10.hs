@@ -13,6 +13,9 @@ module Data.X509.PKCS10
       , HashAlgorithmConversion(..)
       , KeyPair(..)
       , generateCSR
+      , toDER
+      , toPEM
+      , toNewFormatPEM
       , decodeDER
     ) where
 
@@ -29,7 +32,7 @@ import           Data.ASN1.Parse
 import           Data.ASN1.Types
 import qualified Data.ByteString          as B
 import qualified Data.ByteString.Char8    as BC
--- import           Data.PEM
+import           Data.PEM
 import           Data.Typeable
 import           Data.X509
 
@@ -372,14 +375,14 @@ makeCertReq certReq sig hashAlg pubKeyAlg =
     , signature = Signature sig
   }
 
-generateCSR :: (MonadRandom m, HashAlgorithmConversion hashAlg, HashAlgorithm hashAlg) => X520Attributes -> PKCS9Attributes -> KeyPair -> hashAlg -> m (Either String BC.ByteString)
+generateCSR :: (MonadRandom m, HashAlgorithmConversion hashAlg, HashAlgorithm hashAlg) => X520Attributes -> PKCS9Attributes -> KeyPair -> hashAlg -> m (Either String CertificationRequest)
 
 generateCSR subject extAttrs (KeyPairRSA pubKey privKey) hashAlg =
   f <$> sign certReqInfo
   where
     certReqInfo = makeCertReqInfo subject extAttrs $ PubKeyRSA pubKey
     sign = RSA.signSafer (Just hashAlg) privKey . encodeDER
-    f = either (Left . show) (Right . encodeDER . certReq)
+    f = either (Left . show) (Right . certReq)
     certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_RSA
 
 generateCSR subject extAttrs (KeyPairDSA pubKey privKey) hashAlg =
@@ -387,5 +390,22 @@ generateCSR subject extAttrs (KeyPairDSA pubKey privKey) hashAlg =
   where
     certReqInfo = makeCertReqInfo subject extAttrs $ PubKeyDSA pubKey
     sign = DSA.sign privKey hashAlg . encodeDER
-    f = Right . encodeDER . certReq . encodeASN1' DER . flip toASN1 []
+    f = Right . certReq . encodeDER
     certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_DSA
+
+toDER :: CertificationRequest -> BC.ByteString
+toDER = encodeDER
+
+toPEM :: CertificationRequest -> PEM
+toPEM req = PEM {
+  pemName = "CERTIFICATE REQUEST"
+  , pemHeader = []
+  , pemContent = toDER req
+}
+
+toNewFormatPEM :: CertificationRequest -> PEM
+toNewFormatPEM req = PEM {
+  pemName = "NEW CERTIFICATE REQUEST"
+  , pemHeader = []
+  , pemContent = toDER req
+}
