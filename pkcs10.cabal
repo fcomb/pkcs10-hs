@@ -1,5 +1,5 @@
 name:                pkcs10
-version:             0.1.0.2
+version:             0.1.0.3
 synopsis:            PKCS#10 library
 description:         Please see README.md
 homepage:            https://github.com/fcomb/pkcs10-hs#readme
@@ -21,8 +21,6 @@ library
   default-language:    Haskell2010
   build-depends:       base >= 4.3 && < 5
                      , bytestring
-                     , containers
-                     , memory
                      , x509
                      , cryptonite
                      , pem
