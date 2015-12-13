@@ -1,4 +1,6 @@
+{-# LANGUAGE DeriveDataTypeable        #-}
 {-# LANGUAGE ExistentialQuantification #-}
+{-# LANGUAGE StandaloneDeriving        #-}
 
 -- |
 -- Module      : Data.X509.PKCS10
@@ -48,6 +50,7 @@ import           Data.ASN1.Types
 import qualified Data.ByteString          as B
 import qualified Data.ByteString.Char8    as BC
 import           Data.PEM
+import           Data.Typeable
 import           Data.X509
 
 -- | A list of X520 attributes.
@@ -126,7 +129,7 @@ instance OIDNameable X520Attribute where
 
 -- | A list of PKCS9 extension attributes.
 data PKCS9Attribute =
-  forall e . (Extension e, Show e, Eq e) => PKCS9Attribute e
+  forall e . (Extension e, Show e, Eq e, Typeable e) => PKCS9Attribute e
 
 -- | PKCS9 extension attributes.
 newtype PKCS9Attributes =
@@ -135,9 +138,19 @@ newtype PKCS9Attributes =
 instance Show PKCS9Attribute where
   show (PKCS9Attribute e) = show e
 
+deriving instance Typeable ExtKeyUsage
+deriving instance Typeable ExtSubjectKeyId
+deriving instance Typeable ExtSubjectAltName
+deriving instance Typeable ExtBasicConstraints
+deriving instance Typeable ExtCrlDistributionPoints
+deriving instance Typeable ExtAuthorityKeyId
+deriving instance Typeable ExtExtendedKeyUsage
+
 instance Eq PKCS9Attribute where
    (PKCS9Attribute x) == (PKCS9Attribute y) =
-     show x == show y
+     case cast y of
+       Just y' -> x == y'
+       Nothing -> False
 
 -- | X520 attributes.
 newtype X520Attributes =
@@ -293,7 +306,7 @@ instance ASN1Object PKCS9Attribute where
       [2,5,29,37] -> f (decode :: Either String ExtExtendedKeyUsage)
       _ -> Left "fromASN1: PKCS9.Attribute: unknown oid"
     where
-      decode :: forall e . (Extension e, Show e, Eq e) => Either String e
+      decode :: forall e . (Extension e, Show e, Eq e, Typeable e) => Either String e
       decode = extDecode =<< decodeDER os
       f (Right attr) = Right (PKCS9Attribute attr, xs)
       f (Left e) = Left e
