@@ -2,7 +2,7 @@ name:                pkcs10
 version:             0.1.0.0
 synopsis:            PKCS#10 library
 description:         Please see README.md
-homepage:            http://github.com/fcomb/pkcs10-hs#readme
+homepage:            https://github.com/fcomb/pkcs10-hs#readme
 license:             Apache-2.0
 license-file:        LICENSE
 author:              Timothy Klim <hackage@timothyklim.com>
@@ -30,7 +30,7 @@ library
                      , asn1-encoding
                      , asn1-parse
 
-test-suite tests
+test-suite             tests
   ghc-options:         -W
   type:                exitcode-stdio-1.0
   default-language:    Haskell2010
@@ -41,7 +41,6 @@ test-suite tests
                      , pkcs10
                      , tasty
                      , tasty-hunit
-                     , tasty-quickcheck
                      , bytestring
                      , cryptonite
                      , pem
@@ -50,6 +49,16 @@ test-suite tests
                      , asn1-encoding
                      , asn1-parse
 
-source-repository head
+-- executable             example
+--   ghc-options:         -W
+--   default-language:    Haskell2010
+--   hs-source-dirs:      example
+--   main-is:             Main.hs
+--   build-depends:       base >= 4.3 && < 5
+--                      , pkcs10
+--                      , cryptonite
+--                      , x509
+
+source-repository      head
   type:     git
   location: git://github.com/fcomb/pkcs10-hs

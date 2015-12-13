@@ -14,7 +14,6 @@ import           Data.X509.PKCS10
 import           Keys
 import           Test.Tasty
 import           Test.Tasty.HUnit
--- import           Test.Tasty.QuickCheck as QC
 
 main :: IO ()
 main = do

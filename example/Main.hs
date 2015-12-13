@@ -1,11 +1,5 @@
-PKCS#10 library
-=========
+module Main where
 
-[![Build Status](https://travis-ci.org/fcomb/pkcs10-hs.svg)](https://travis-ci.org/fcomb/pkcs10-hs)
-
-### Example
-
-```haskell
 import           Crypto.Hash
 import           Crypto.PubKey.RSA
 import           Data.X509
@@ -21,4 +15,3 @@ main = do
   Right req <- generateCSR subjectAttrs extAttrs (KeyPairRSA pubKey privKey) SHA512
   putStrLn . show . toPEM $ req -- export in PEM format
   putStrLn . show $ verify (csrToSigned req) $ PubKeyRSA pubKey -- sign CSR before verify
-```

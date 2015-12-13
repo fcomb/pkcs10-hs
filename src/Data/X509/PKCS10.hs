@@ -1,5 +1,16 @@
 {-# LANGUAGE ExistentialQuantification #-}
 
+-- |
+-- Module      : Data.X509.PKCS10
+-- License     : Apache-2.0
+-- Maintainer  : Timothy Klim <hackage@timothyklim.com>
+-- Stability   : experimental
+-- Portability : unknown
+--
+-- Read/Write PKCS10 certificate signing request (also CSR or certification request).
+--
+-- Follows RFC2986
+--
 module Data.X509.PKCS10
     ( X520Attribute(..)
     , X520Attributes(..)
@@ -22,6 +33,7 @@ module Data.X509.PKCS10
     , fromPEM
     ) where
 
+import           Control.Applicative      ((<$>), (<*>))
 import           Crypto.Hash
 import qualified Crypto.PubKey.DSA        as DSA
 import qualified Crypto.PubKey.RSA        as RSA
@@ -39,6 +51,7 @@ import           Data.PEM
 import           Data.Typeable
 import           Data.X509
 
+-- | A list of X520 attributes.
 data X520Attribute =
      X520CommonName
    | X520SerialNumber
@@ -112,9 +125,11 @@ instance OIDNameable X520Attribute where
   fromObjectID [0,9,2342,19200300,100,1,1]  = Just UserId
   fromObjectID oid                          = Just $ RawAttribute oid
 
+-- | A list of PKCS9 extension attributes.
 data PKCS9Attribute =
   forall e . (Extension e, Show e, Eq e, Typeable e) => PKCS9Attribute e
 
+-- | PKCS9 extension attributes.
 newtype PKCS9Attributes =
   PKCS9Attributes [PKCS9Attribute] deriving (Show, Eq)
 
@@ -127,20 +142,24 @@ instance Eq PKCS9Attribute where
        Just y' -> x == y'
        Nothing -> False
 
+-- | X520 attributes.
 newtype X520Attributes =
         X520Attributes [(X520Attribute, ASN1CharacterString)] deriving (Show, Eq)
 
+-- | CSR class.
 data CertificationRequest = CertificationRequest {
   certificationRequestInfo :: CertificationRequestInfo
 , signatureAlgorithm       :: SignatureALG
 , signature                :: Signature
 } deriving (Show, Eq)
 
+-- | A signed CSR class.
 data SignedCertificationRequest = SignedCertificationRequest {
   certificationRequest        :: CertificationRequest
 , rawCertificationRequestInfo :: B.ByteString -- raw bytes for verifying signature
 } deriving (Show, Eq)
 
+-- | Certificate request info.
 data CertificationRequestInfo = CertificationRequestInfo {
   version              :: Version
 , subject              :: X520Attributes
@@ -148,8 +167,10 @@ data CertificationRequestInfo = CertificationRequestInfo {
 , attributes           :: PKCS9Attributes
 } deriving (Show, Eq)
 
+-- | Version of CSR (default 0).
 newtype Version = Version Int deriving (Show, Eq)
 
+-- | Signature of certificate request info.
 newtype Signature =
         Signature B.ByteString deriving (Show, Eq)
 
@@ -351,6 +372,7 @@ instance HashAlgorithmConversion SHA384 where
 instance HashAlgorithmConversion SHA512 where
   fromHashAlgorithmASN1 SHA512 = HashSHA512
 
+-- | Helper to convert string values as utf8 asn1 strings.
 makeX520Attributes :: [(X520Attribute, String)] -> X520Attributes
 makeX520Attributes xs =
   X520Attributes $ fmap f xs
@@ -366,6 +388,7 @@ decodeDER = either (Left . show) Right . decodeASN1' DER
 decodeFromDER :: ASN1Object o => BC.ByteString -> Either String (o, [ASN1])
 decodeFromDER bs = fromASN1 =<< decodeDER bs
 
+-- | Key pair for RSA and DSA keys.
 data KeyPair =
    KeyPairRSA RSA.PublicKey RSA.PrivateKey
  | KeyPairDSA DSA.PublicKey DSA.PrivateKey
@@ -397,6 +420,7 @@ instance ASN1Object DSA.Signature where
 
   fromASN1 _ = Left "fromASN1: DSA.Signature: unknown format"
 
+-- | Generate CSR.
 generateCSR :: (MonadRandom m, HashAlgorithmConversion hashAlg, HashAlgorithm hashAlg) => X520Attributes -> PKCS9Attributes -> KeyPair -> hashAlg -> m (Either String CertificationRequest)
 
 generateCSR subject extAttrs (KeyPairRSA pubKey privKey) hashAlg =
@@ -415,12 +439,14 @@ generateCSR subject extAttrs (KeyPairDSA pubKey privKey) hashAlg =
     f = Right . certReq . encodeToDER
     certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_DSA
 
+-- | Sign CSR.
 csrToSigned :: CertificationRequest -> SignedCertificationRequest
 csrToSigned req = SignedCertificationRequest {
   certificationRequest = req
 , rawCertificationRequestInfo = encodeToDER . certificationRequestInfo $ req
 }
 
+-- | Verify signed CSR.
 verify :: SignedCertificationRequest -> PubKey -> Bool
 verify SignedCertificationRequest {
          certificationRequest = CertificationRequest {
@@ -454,12 +480,14 @@ verify SignedCertificationRequest {
 
 verify _ _ = False
 
+-- | Convert CSR to DER as ByteString.
 toDER :: CertificationRequest -> BC.ByteString
 toDER = encodeToDER
 
 requestHeader :: String
 requestHeader = "CERTIFICATE REQUEST"
 
+-- | Convert CSR to PEM format.
 toPEM :: CertificationRequest -> PEM
 toPEM req = PEM {
   pemName = requestHeader
@@ -470,6 +498,7 @@ toPEM req = PEM {
 newFormatRequestHeader :: String
 newFormatRequestHeader = "NEW CERTIFICATE REQUEST"
 
+-- | Convert CSR to PEM new format.
 toNewFormatPEM :: CertificationRequest -> PEM
 toNewFormatPEM req = PEM {
   pemName = newFormatRequestHeader
@@ -477,10 +506,12 @@ toNewFormatPEM req = PEM {
 , pemContent = toDER req
 }
 
+-- | Convert ByteString to signed CSR.
 fromDER :: BC.ByteString -> Either String SignedCertificationRequest
 fromDER bs =
    fst <$> (parseSignedCertificationRequest =<< decodeDER bs)
 
+-- | Convert PEM to signed CSR.
 fromPEM :: PEM -> Either String SignedCertificationRequest
 fromPEM p =
   if pemName p == requestHeader || pemName p == newFormatRequestHeader
