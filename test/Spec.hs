@@ -1,7 +1,7 @@
 module Main where
 
 import           Crypto.Hash
--- import qualified Crypto.PubKey.DSA        as DSA
+import qualified Crypto.PubKey.DSA        as DSA
 import qualified Crypto.PubKey.RSA        as RSA
 import           Data.ASN1.BinaryEncoding
 import           Data.ASN1.Encoding
@@ -31,32 +31,41 @@ unitTests = testGroup "Unit tests"
       req <- defaultRsaCSR emptySubjectAttrs emptyExtAttrs
       checkCSR (csrToSigned req) emptySubjectAttrs emptyExtAttrs $ PubKeyRSA rsaPublicKey
   , testCase "CSR fixtures (RSA)" $ do
-      let subjAttrs = X520Attributes [(X520CommonName, asn1CharacterString Printable "api"), (X520CommonName, asn1CharacterString Printable "fcomb"), (X520CommonName, asn1CharacterString Printable "com"), (X520StateOrProvinceName, asn1CharacterString Printable "Moscow"), (X520LocalityName, asn1CharacterString Printable "Moscow"), (X520OrganizationName, asn1CharacterString Printable "End Point"), (X520OrganizationalUnitName, asn1CharacterString Printable "fcomb"), (EmailAddress, asn1CharacterString IA5 "in@fcomb.io"), (X509SubjectAltName, asn1CharacterString Printable "DNS.1=fcomb.com")]
-      checkRsaFixtureCSR "rsa" "rsa1" subjAttrs (PKCS9Attributes [PKCS9Attribute $ ExtBasicConstraints False Nothing, PKCS9Attribute $ ExtKeyUsage [KeyUsage_digitalSignature,KeyUsage_nonRepudiation,KeyUsage_keyEncipherment]])
-      checkRsaFixtureCSR "rsa" "rsa2" subjAttrs emptyExtAttrs
-      checkRsaFixtureCSR "rsa" "rsa3" emptySubjectAttrs emptyExtAttrs
+      checkRsaFixtureCSR "rsa" "rsa1" pemSubjectAttrs pemExtAttrs readRSA
+      checkRsaFixtureCSR "rsa" "rsa2" pemSubjectAttrs emptyExtAttrs readRSA
+      checkRsaFixtureCSR "rsa" "rsa3" emptySubjectAttrs emptyExtAttrs readRSA
   , testCase "CSR with subject and extension (DSA)" $ do
       req <- defaultDsaCSR subjectAttrs extAttrs
       checkCSR (csrToSigned req) subjectAttrs extAttrs $ PubKeyDSA dsaPublicKey
   ,  testCase "CSR with empty subject and extension (DSA)" $ do
       req <- defaultDsaCSR emptySubjectAttrs emptyExtAttrs
       checkCSR (csrToSigned req) emptySubjectAttrs emptyExtAttrs $ PubKeyDSA dsaPublicKey
+  , testCase "CSR fixtures (DSA)" $ do
+      checkRsaFixtureCSR "dsa" "dsa1" pemSubjectAttrs pemExtAttrs readDSA
+      checkRsaFixtureCSR "dsa" "dsa2" pemSubjectAttrs emptyExtAttrs readDSA
+      checkRsaFixtureCSR "dsa" "dsa3" emptySubjectAttrs emptyExtAttrs readDSA
   ]
 
 subjectAttrs = makeX520Attributes [(X520CommonName, "node.fcomb.io"), (X520OrganizationName, "fcomb")]
+
+pemSubjectAttrs = X520Attributes [(X520CommonName, asn1CharacterString Printable "api"), (X520CommonName, asn1CharacterString Printable "fcomb"), (X520CommonName, asn1CharacterString Printable "com"), (X520StateOrProvinceName, asn1CharacterString Printable "Moscow"), (X520LocalityName, asn1CharacterString Printable "Moscow"), (X520OrganizationName, asn1CharacterString Printable "End Point"), (X520OrganizationalUnitName, asn1CharacterString Printable "fcomb"), (EmailAddress, asn1CharacterString IA5 "in@fcomb.io"), (X509SubjectAltName, asn1CharacterString Printable "DNS.1=fcomb.com")]
 
 emptySubjectAttrs = X520Attributes []
 
 extAttrs = PKCS9Attributes [PKCS9Attribute $ ExtExtendedKeyUsage [KeyUsagePurpose_ServerAuth, KeyUsagePurpose_CodeSigning], PKCS9Attribute $ ExtKeyUsage [KeyUsage_digitalSignature, KeyUsage_cRLSign]]
 
+pemExtAttrs = PKCS9Attributes [PKCS9Attribute $ ExtBasicConstraints False Nothing, PKCS9Attribute $ ExtKeyUsage [KeyUsage_digitalSignature,KeyUsage_nonRepudiation,KeyUsage_keyEncipherment]]
+
 emptyExtAttrs = PKCS9Attributes []
 
-checkRsaFixtureCSR keyName csrName subjectAttrs extAttrs = do
-  rsaPem <- readPEMFile $ "./test/fixtures/" ++ keyName ++ ".pem"
-  let publicKey = RSA.private_pub $ readRsaPubKey rsaPem 256
+readRSA pem = PubKeyRSA $ readRsaPubKey pem 256
+
+readDSA pem = PubKeyDSA $ readDsaPubKey pem
+
+checkRsaFixtureCSR keyName csrName subjectAttrs extAttrs pkf = do
+  keyPem <- readPEMFile $ "./test/fixtures/" ++ keyName ++ ".pem"
   csrPem <- readPEMFile $ "./test/fixtures/" ++ csrName ++ ".csr"
-  let req = readCSR csrPem
-  checkCSR req subjectAttrs extAttrs $ PubKeyRSA publicKey
+  checkCSR (readCSR csrPem) subjectAttrs extAttrs $ pkf keyPem
 
 defaultRsaCSR subjectAttrs extAttrs = do
   Right req <- generateCSR subjectAttrs extAttrs (KeyPairRSA rsaPublicKey rsaPrivateKey) SHA512
@@ -113,7 +122,7 @@ checkCSR csr subjectAttrs extAttrs pubKey = do
   checkPEM (certificationRequest csr)
   verifyCSR csr pubKey
 
-readRsaPubKey :: B.ByteString -> Int -> RSA.PrivateKey
+readRsaPubKey :: B.ByteString -> Int -> RSA.PublicKey
 readRsaPubKey bs size =
   case decodeASN1' DER bs of
     Right (Start Sequence :
@@ -127,7 +136,7 @@ readRsaPubKey bs size =
            IntVal private_dQ :
            IntVal private_qinv :
            End Sequence : _) ->
-           RSA.PrivateKey {
+           RSA.private_pub $ RSA.PrivateKey {
                   RSA.private_pub = RSA.PublicKey {
                     RSA.public_size = size
                   , RSA.public_n = public_n
@@ -141,6 +150,27 @@ readRsaPubKey bs size =
                 , RSA.private_qinv = private_qinv
            }
     _ -> error "RSA.PrivateKey: unknown format"
+
+readDsaPubKey :: B.ByteString -> DSA.PublicKey
+readDsaPubKey bs =
+  case decodeASN1' DER bs of
+    Right (Start Sequence :
+           IntVal _ :
+           IntVal params_p :
+           IntVal params_q :
+           IntVal params_g :
+           IntVal public_y :
+           IntVal _ : -- private_x :
+           End Sequence : _) ->
+           DSA.PublicKey {
+             DSA.public_y = public_y
+           , DSA.public_params = DSA.Params {
+               DSA.params_p = params_p
+             , DSA.params_g = params_g
+             , DSA.params_q = params_q
+             }
+           }
+    _ -> error "DSA.PrivateKey: unknown format"
 
 readCSR bs =
   case fromDER bs of

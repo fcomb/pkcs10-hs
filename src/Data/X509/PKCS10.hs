@@ -364,8 +364,7 @@ decodeDER :: BC.ByteString -> Either String [ASN1]
 decodeDER = either (Left . show) Right . decodeASN1' DER
 
 decodeFromDER :: ASN1Object o => BC.ByteString -> Either String (o, [ASN1])
-decodeFromDER bs =
-  either Left fromASN1 $ decodeDER bs
+decodeFromDER bs = fromASN1 =<< decodeDER bs
 
 data KeyPair =
    KeyPairRSA RSA.PublicKey RSA.PrivateKey
