@@ -1,5 +1,6 @@
 module Main where
 
+import           Control.Applicative      ((<$>), (<*>))
 import           Crypto.Hash
 import qualified Crypto.PubKey.DSA        as DSA
 import qualified Crypto.PubKey.RSA        as RSA
