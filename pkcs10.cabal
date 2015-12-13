@@ -1,5 +1,5 @@
 name:                pkcs10
-version:             0.1.0.0
+version:             0.1.0.1
 synopsis:            PKCS#10 library
 description:         Please see README.md
 homepage:            https://github.com/fcomb/pkcs10-hs#readme
