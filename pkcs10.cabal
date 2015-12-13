@@ -46,6 +46,9 @@ test-suite tests
                      , cryptonite
                      , pem
                      , x509
+                     , asn1-types
+                     , asn1-encoding
+                     , asn1-parse
 
 source-repository head
   type:     git

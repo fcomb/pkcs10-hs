@@ -2,21 +2,22 @@
 
 module Data.X509.PKCS10
     ( X520Attribute(..)
-      , X520Attributes(..)
-      , PKCS9Attribute(..)
-      , PKCS9Attributes(..)
-      , CertificationRequestInfo(..)
-      , CertificationRequest(..)
-      , Version(..)
-      , Signature(..)
-      , KeyPair(..)
-      , generateCSR
-      , verify
-      , toDER
-      , fromDER
-      , toPEM
-      , toNewFormatPEM
-      , fromPEM
+    , X520Attributes(..)
+    , PKCS9Attribute(..)
+    , PKCS9Attributes(..)
+    , CertificationRequestInfo(..)
+    , CertificationRequest(..)
+    , Version(..)
+    , Signature(..)
+    , KeyPair(..)
+    , makeX520Attributes
+    , generateCSR
+    , verify
+    , toDER
+    , fromDER
+    , toPEM
+    , toNewFormatPEM
+    , fromPEM
     ) where
 
 import           Crypto.Hash
@@ -38,25 +39,27 @@ import           Data.X509
 
 data X520Attribute =
      X520CommonName
-     | X520SerialNumber
-     | X520Name
-     | X520Surname
-     | X520GivenName
-     | X520Initials
-     | X520GenerationQualifier
-     | X520CountryName
-     | X520LocalityName
-     | X520StateOrProvinceName
-     | X520StreetAddress
-     | X520OrganizationName
-     | X520OrganizationalUnitName
-     | X520Title
-     | X520DNQualifier
-     | X520Pseudonym
-     | EmailAddress
-     | IPAddress
-     | DomainComponent
-     | UserId
+   | X520SerialNumber
+   | X520Name
+   | X520Surname
+   | X520GivenName
+   | X520Initials
+   | X520GenerationQualifier
+   | X520CountryName
+   | X520LocalityName
+   | X520StateOrProvinceName
+   | X520StreetAddress
+   | X520OrganizationName
+   | X520OrganizationalUnitName
+   | X520Title
+   | X520DNQualifier
+   | X520Pseudonym
+   | X509SubjectAltName
+   | EmailAddress
+   | IPAddress
+   | DomainComponent
+   | UserId
+   | RawAttribute [Integer]
      deriving (Show, Eq)
 
 instance OIDable X520Attribute where
@@ -76,10 +79,12 @@ instance OIDable X520Attribute where
   getObjectID X520Title                  = [2,5,4,12]
   getObjectID X520DNQualifier            = [2,5,4,46]
   getObjectID X520Pseudonym              = [2,5,4,65]
+  getObjectID X509SubjectAltName         = [2,5,29,17]
   getObjectID EmailAddress               = [1,2,840,113549,1,9,1]
   getObjectID IPAddress                  = [1,3,6,1,4,1,42,2,11,2,1]
   getObjectID DomainComponent            = [0,9,2342,19200300,100,1,25]
   getObjectID UserId                     = [0,9,2342,19200300,100,1,1]
+  getObjectID (RawAttribute oid)         = oid
 
 instance OIDNameable X520Attribute where
   fromObjectID [2,5,4,3]                    = Just X520CommonName
@@ -98,11 +103,12 @@ instance OIDNameable X520Attribute where
   fromObjectID [2,5,4,12]                   = Just X520Title
   fromObjectID [2,5,4,46]                   = Just X520DNQualifier
   fromObjectID [2,5,4,65]                   = Just X520Pseudonym
+  fromObjectID [2,5,29,17]                  = Just X509SubjectAltName
   fromObjectID [1,2,840,113549,1,9,1]       = Just EmailAddress
   fromObjectID [1,3,6,1,4,1,42,2,11,2,1]    = Just IPAddress
   fromObjectID [0,9,2342,19200300,100,1,25] = Just DomainComponent
   fromObjectID [0,9,2342,19200300,100,1,1]  = Just UserId
-  fromObjectID _                            = Nothing
+  fromObjectID oid                          = Just $ RawAttribute oid
 
 data PKCS9Attribute =
   forall e . (Extension e, Show e, Eq e, Typeable e) => PKCS9Attribute e
@@ -120,19 +126,19 @@ instance Eq PKCS9Attribute where
        Nothing -> False
 
 newtype X520Attributes =
-        X520Attributes [(X520Attribute, String)] deriving (Show, Eq)
+        X520Attributes [(X520Attribute, ASN1CharacterString)] deriving (Show, Eq)
 
 data CertificationRequest = CertificationRequest {
   certificationRequestInfo :: CertificationRequestInfo
-  , signatureAlgorithm     :: SignatureALG
-  , signature              :: Signature
+, signatureAlgorithm       :: SignatureALG
+, signature                :: Signature
 } deriving (Show, Eq)
 
 data CertificationRequestInfo = CertificationRequestInfo {
-  version                :: Version
-  , subject              :: X520Attributes
-  , subjectPublicKeyInfo :: PubKey
-  , attributes           :: PKCS9Attributes
+  version              :: Version
+, subject              :: X520Attributes
+, subjectPublicKeyInfo :: PubKey
+, attributes           :: PKCS9Attributes
 } deriving (Show, Eq)
 
 newtype Version = Version Int deriving (Show, Eq)
@@ -209,7 +215,7 @@ instance ASN1Object X520Attributes where
       attrSet = concatMap f attrs
       f (attr, s) = [Start Set, Start Sequence, oid attr, cs s, End Sequence, End Set]
       oid attr = OID $ getObjectID attr
-      cs s = ASN1String $ asn1CharacterString UTF8 s
+      cs s = ASN1String  s
 
   fromASN1 (Start Sequence : xs) =
     f (X520Attributes []) xs
@@ -221,10 +227,9 @@ instance ASN1Object X520Attributes where
                                 End Sequence :
                                 End Set :
                                 rest) =
-        case (fromObjectID oid, asn1CharacterToString cs) of
-          (Just attr, Just s) ->
-            f (X520Attributes $ (attr, s) : attrs) rest
-          _ -> Left "fromASN1: X520.Attributes: unknown oid"
+        case fromObjectID oid of
+          Just attr -> f (X520Attributes $ (attr, cs) : attrs) rest
+          _ -> Left ("fromASN1: X520.Attributes: unknown oid" ++ show oid)
       f (X520Attributes attrs) (End Sequence : rest) =
         Right (X520Attributes $ reverse attrs, rest)
       f _ _ = Left "fromASN1: X520.Attributes: unknown format"
@@ -327,6 +332,12 @@ instance HashAlgorithmConversion SHA384 where
 instance HashAlgorithmConversion SHA512 where
   fromHashAlgorithmASN1 SHA512 = HashSHA512
 
+makeX520Attributes :: [(X520Attribute, String)] -> X520Attributes
+makeX520Attributes xs =
+  X520Attributes $ fmap f xs
+  where
+    f (attr, s) = (attr, asn1CharacterString UTF8 s)
+
 encodeDER :: ASN1Object o => o -> BC.ByteString
 encodeDER = encodeASN1' DER . flip toASN1 []
 
@@ -338,25 +349,25 @@ decodeDER bs =
     f = either (Left . show) id
 
 data KeyPair =
-  KeyPairRSA RSA.PublicKey RSA.PrivateKey
-  | KeyPairDSA DSA.PublicKey DSA.PrivateKey
-  deriving (Show, Eq)
+   KeyPairRSA RSA.PublicKey RSA.PrivateKey
+ | KeyPairDSA DSA.PublicKey DSA.PrivateKey
+   deriving (Show, Eq)
 
 makeCertReqInfo :: X520Attributes -> PKCS9Attributes -> PubKey -> CertificationRequestInfo
 makeCertReqInfo subject extAttrs pubKey =
   CertificationRequestInfo {
     version = Version 0
-    , subject = subject
-    , subjectPublicKeyInfo = pubKey
-    , attributes = extAttrs
+  , subject = subject
+  , subjectPublicKeyInfo = pubKey
+  , attributes = extAttrs
   }
 
 makeCertReq :: HashAlgorithmConversion hashAlg => CertificationRequestInfo -> BC.ByteString -> hashAlg -> PubKeyALG -> CertificationRequest
 makeCertReq certReq sig hashAlg pubKeyAlg =
   CertificationRequest {
     certificationRequestInfo = certReq
-    , signatureAlgorithm = SignatureALG (fromHashAlgorithmASN1 hashAlg) pubKeyAlg
-    , signature = Signature sig
+  , signatureAlgorithm = SignatureALG (fromHashAlgorithmASN1 hashAlg) pubKeyAlg
+  , signature = Signature sig
   }
 
 instance ASN1Object DSA.Signature where
@@ -425,8 +436,8 @@ requestHeader = "CERTIFICATE REQUEST"
 toPEM :: CertificationRequest -> PEM
 toPEM req = PEM {
   pemName = requestHeader
-  , pemHeader = []
-  , pemContent = toDER req
+, pemHeader = []
+, pemContent = toDER req
 }
 
 newFormatRequestHeader :: String
@@ -435,8 +446,8 @@ newFormatRequestHeader = "NEW CERTIFICATE REQUEST"
 toNewFormatPEM :: CertificationRequest -> PEM
 toNewFormatPEM req = PEM {
   pemName = newFormatRequestHeader
-  , pemHeader = []
-  , pemContent = toDER req
+, pemHeader = []
+, pemContent = toDER req
 }
 
 fromDER :: BC.ByteString -> Either String CertificationRequest
