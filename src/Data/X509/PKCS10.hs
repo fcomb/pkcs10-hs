@@ -7,11 +7,13 @@ module Data.X509.PKCS10
     , PKCS9Attributes(..)
     , CertificationRequestInfo(..)
     , CertificationRequest(..)
+    , SignedCertificationRequest(..)
     , Version(..)
     , Signature(..)
     , KeyPair(..)
     , makeX520Attributes
     , generateCSR
+    , csrToSigned
     , verify
     , toDER
     , fromDER
@@ -134,6 +136,11 @@ data CertificationRequest = CertificationRequest {
 , signature                :: Signature
 } deriving (Show, Eq)
 
+data SignedCertificationRequest = SignedCertificationRequest {
+  certificationRequest        :: CertificationRequest
+, rawCertificationRequestInfo :: B.ByteString -- raw bytes for verifying signature
+} deriving (Show, Eq)
+
 data CertificationRequestInfo = CertificationRequestInfo {
   version              :: Version
 , subject              :: X520Attributes
@@ -154,17 +161,31 @@ instance ASN1Object CertificationRequest where
        toASN1 sig)
       (End Sequence : xs)
 
-  fromASN1 (Start Sequence : xs) =
-    f $ runParseASN1State p xs
+  fromASN1 xs =
+    f <$> (parseSignedCertificationRequest xs)
     where
-      p = CertificationRequest <$> getObject
-                               <*> getObject
-                               <*> getObject
-      f (Right (req, End Sequence : xs)) = Right (req, xs)
+     f (scr, xs') = (certificationRequest scr, xs')
+
+parseSignedCertificationRequest :: [ASN1] -> Either String (SignedCertificationRequest, [ASN1])
+parseSignedCertificationRequest (Start Sequence : xs) =
+    f $ parseCertReqInfo xs
+    where
+      parseCertReqInfo xs' =
+        case fromASN1 xs' of
+          Right (cri @ CertificationRequestInfo {}, rest) ->
+            runParseASN1State (p cri raw) rest
+            where
+              raw = encodeASN1' DER $ take (length xs' - length rest) xs'
+          Left e -> Left e
+      p cri raw = (flip SignedCertificationRequest raw) <$>
+                    (CertificationRequest cri <$> getObject <*> getObject)
+      f (Right (req, End Sequence : xs')) =
+        Right (req, xs')
       f (Right _) = Left "fromASN1: PKCS9.CertificationRequest: unknown format"
       f (Left e) = Left e
 
-  fromASN1 _ = Left "fromASN1: PKCS9.CertificationRequest: unknown format"
+parseSignedCertificationRequest _ =
+  Left "fromASN1: PKCS9.CertificationRequest: unknown format"
 
 instance ASN1Object Signature where
   toASN1 (Signature bs) xs =
@@ -255,9 +276,7 @@ instance ASN1Object PKCS9Attribute where
       _ -> Left "fromASN1: PKCS9.Attribute: unknown oid"
     where
       decode :: forall e . (Extension e, Show e, Eq e, Typeable e) => Either String e
-      decode = case decodeASN1' DER os of
-                 Right ds -> extDecode ds
-                 Left e -> Left $ show e
+      decode = extDecode =<< decodeDER os
       f (Right attr) = Right (PKCS9Attribute attr, xs)
       f (Left e) = Left e
 
@@ -338,15 +357,15 @@ makeX520Attributes xs =
   where
     f (attr, s) = (attr, asn1CharacterString UTF8 s)
 
-encodeDER :: ASN1Object o => o -> BC.ByteString
-encodeDER = encodeASN1' DER . flip toASN1 []
+encodeToDER :: ASN1Object o => o -> BC.ByteString
+encodeToDER = encodeASN1' DER . flip toASN1 []
 
-decodeDER :: ASN1Object o => BC.ByteString -> Either String (o, [ASN1])
-decodeDER bs =
-  f asn
-  where
-    asn = fromASN1 <$> decodeASN1' DER bs
-    f = either (Left . show) id
+decodeDER :: BC.ByteString -> Either String [ASN1]
+decodeDER = either (Left . show) Right . decodeASN1' DER
+
+decodeFromDER :: ASN1Object o => BC.ByteString -> Either String (o, [ASN1])
+decodeFromDER bs =
+  either Left fromASN1 $ decodeDER bs
 
 data KeyPair =
    KeyPairRSA RSA.PublicKey RSA.PrivateKey
@@ -385,7 +404,7 @@ generateCSR subject extAttrs (KeyPairRSA pubKey privKey) hashAlg =
   f <$> sign certReqInfo
   where
     certReqInfo = makeCertReqInfo subject extAttrs $ PubKeyRSA pubKey
-    sign = RSA.signSafer (Just hashAlg) privKey . encodeDER
+    sign = RSA.signSafer (Just hashAlg) privKey . encodeToDER
     f = either (Left . show) (Right . certReq)
     certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_RSA
 
@@ -393,19 +412,27 @@ generateCSR subject extAttrs (KeyPairDSA pubKey privKey) hashAlg =
   f <$> sign certReqInfo
   where
     certReqInfo = makeCertReqInfo subject extAttrs $ PubKeyDSA pubKey
-    sign = DSA.sign privKey hashAlg . encodeDER
-    f = Right . certReq . encodeDER
+    sign = DSA.sign privKey hashAlg . encodeToDER
+    f = Right . certReq . encodeToDER
     certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_DSA
 
-verify :: CertificationRequest -> PubKey -> Bool
-verify (req @ CertificationRequest {
-                signatureAlgorithm = SignatureALG hashAlg PubKeyALG_RSA
-              , signature = Signature sm
-              })
+csrToSigned :: CertificationRequest -> SignedCertificationRequest
+csrToSigned req = SignedCertificationRequest {
+  certificationRequest = req
+, rawCertificationRequestInfo = encodeToDER . certificationRequestInfo $ req
+}
+
+verify :: SignedCertificationRequest -> PubKey -> Bool
+verify SignedCertificationRequest {
+         certificationRequest = CertificationRequest {
+           signatureAlgorithm = SignatureALG hashAlg PubKeyALG_RSA
+         , signature = Signature sm
+         }
+       , rawCertificationRequestInfo = m
+       }
        (PubKeyRSA pubKey) =
   rsaVerify hashAlg pubKey m sm
   where
-    m = encodeDER . certificationRequestInfo $ req
     rsaVerify HashMD2 = RSA.verify (Just MD2)
     rsaVerify HashMD5 = RSA.verify (Just MD5)
     rsaVerify HashSHA1 = RSA.verify (Just SHA1)
@@ -414,21 +441,22 @@ verify (req @ CertificationRequest {
     rsaVerify HashSHA384 = RSA.verify (Just SHA384)
     rsaVerify HashSHA512 = RSA.verify (Just SHA512)
 
-verify (req @ CertificationRequest {
-                signatureAlgorithm = SignatureALG HashSHA1 PubKeyALG_DSA
-              , signature = Signature sm
-              })
+verify SignedCertificationRequest {
+         certificationRequest = CertificationRequest {
+           signatureAlgorithm = SignatureALG HashSHA1 PubKeyALG_DSA
+         , signature = Signature sm
+         }
+         , rawCertificationRequestInfo = m
+       }
        (PubKeyDSA pubKey) =
-  case decodeDER sm of
+  case decodeFromDER sm of
     Right (dsaSig, _) -> DSA.verify SHA1 pubKey dsaSig m
     _ -> False
-  where
-    m = encodeDER . certificationRequestInfo $ req
 
 verify _ _ = False
 
 toDER :: CertificationRequest -> BC.ByteString
-toDER = encodeDER
+toDER = encodeToDER
 
 requestHeader :: String
 requestHeader = "CERTIFICATE REQUEST"
@@ -450,10 +478,11 @@ toNewFormatPEM req = PEM {
 , pemContent = toDER req
 }
 
-fromDER :: BC.ByteString -> Either String CertificationRequest
-fromDER = either Left (Right . fst) . decodeDER
+fromDER :: BC.ByteString -> Either String SignedCertificationRequest
+fromDER bs =
+   fst <$> (parseSignedCertificationRequest =<< decodeDER bs)
 
-fromPEM :: PEM -> Either String CertificationRequest
+fromPEM :: PEM -> Either String SignedCertificationRequest
 fromPEM p =
   if pemName p == requestHeader || pemName p == newFormatRequestHeader
   then fromDER . pemContent $ p
