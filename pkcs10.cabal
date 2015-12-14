@@ -39,6 +39,8 @@ test-suite             tests
                      , pkcs10
                      , tasty
                      , tasty-hunit
+                     , tasty-quickcheck
+                     , QuickCheck
                      , bytestring
                      , cryptonite
                      , pem

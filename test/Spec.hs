@@ -1,6 +1,7 @@
 module Main where
 
 import           Control.Applicative      ((<$>), (<*>))
+import           Control.Monad
 import           Crypto.Hash
 import qualified Crypto.PubKey.DSA        as DSA
 import qualified Crypto.PubKey.RSA        as RSA
@@ -13,15 +14,20 @@ import           Data.PEM
 import           Data.X509
 import           Data.X509.PKCS10
 import           Keys
+import           Test.QuickCheck.Monadic  (monadicIO, run)
 import           Test.Tasty
 import           Test.Tasty.HUnit
+import           Test.Tasty.QuickCheck
 
 main :: IO ()
 main = do
   defaultMain tests
 
 tests :: TestTree
-tests = testGroup "Tests" [unitTests]
+tests = testGroup "Tests" [properties, unitTests]
+
+properties :: TestTree
+properties = testGroup "Properties" [qcProps]
 
 unitTests = testGroup "Unit tests"
   [ testCase "CSR with subject and extension (RSA)" $ do
@@ -46,6 +52,9 @@ unitTests = testGroup "Unit tests"
       checkRsaFixtureCSR "dsa" "dsa3" emptySubjectAttrs emptyExtAttrs readDSA
   ]
 
+qcProps = testGroup "(checked by QuickCheck)"
+  [ testProperty "CSR" (property_csr) ]
+
 subjectAttrs = makeX520Attributes [(X520CommonName, "node.fcomb.io"), (X520OrganizationName, "fcomb")]
 
 pemSubjectAttrs = X520Attributes [(X520CommonName, asn1CharacterString Printable "api"), (X520CommonName, asn1CharacterString Printable "fcomb"), (X520CommonName, asn1CharacterString Printable "com"), (X520StateOrProvinceName, asn1CharacterString Printable "Moscow"), (X520LocalityName, asn1CharacterString Printable "Moscow"), (X520OrganizationName, asn1CharacterString Printable "End Point"), (X520OrganizationalUnitName, asn1CharacterString Printable "fcomb"), (EmailAddress, asn1CharacterString IA5 "in@fcomb.io"), (X509SubjectAltName, asn1CharacterString Printable "DNS.1=fcomb.com")]
@@ -57,6 +66,32 @@ extAttrs = PKCS9Attributes [PKCS9Attribute $ ExtExtendedKeyUsage [KeyUsagePurpos
 pemExtAttrs = PKCS9Attributes [PKCS9Attribute $ ExtBasicConstraints False Nothing, PKCS9Attribute $ ExtKeyUsage [KeyUsage_digitalSignature,KeyUsage_nonRepudiation,KeyUsage_keyEncipherment]]
 
 emptyExtAttrs = PKCS9Attributes []
+
+instance Arbitrary PubKey where
+  arbitrary = elements [PubKeyRSA rsaPublicKey, PubKeyDSA dsaPublicKey]
+
+instance Arbitrary ASN1StringEncoding where
+  arbitrary = elements [IA5,UTF8,Printable,Visible]
+
+instance Arbitrary X520Attribute where
+  arbitrary = elements [X520CommonName,X520SerialNumber,X520Name,X520Surname,X520GivenName,X520Initials,X520GenerationQualifier,X520CountryName,X520LocalityName,X520StateOrProvinceName,X520StreetAddress,X520OrganizationName,X520OrganizationalUnitName,X520Title,X520DNQualifier,X520Pseudonym,X509SubjectAltName,EmailAddress,IPAddress,DomainComponent,UserId,RawAttribute [12,3,4,5]]
+
+arbitraryX520Attrs r1 r2 =
+  choose (r1,r2) >>= \l -> replicateM l arbitraryAttr
+  where
+    arbitraryAttr = (,) <$> arbitrary <*> arbitrary
+
+instance Arbitrary X520Attributes where
+  arbitrary = X520Attributes <$> arbitraryX520Attrs 0 15
+
+arbitraryBS r1 r2 = choose (r1,r2) >>= \l -> (B.pack <$> replicateM l arbitrary)
+
+instance Arbitrary ASN1CharacterString where
+  arbitrary = ASN1CharacterString <$> arbitrary <*> arbitraryBS 1 36
+
+property_csr subjectAttrs pubKey = monadicIO $ do
+  req <- run $ defaultRsaCSR subjectAttrs pemExtAttrs
+  return $ checkCSR (csrToSigned req) subjectAttrs pemExtAttrs pubKey
 
 readRSA pem = PubKeyRSA $ readRsaPubKey pem 256
 
@@ -95,13 +130,13 @@ checkAttrs csr subjectAttrs extAttrs = do
 
 checkDER csr = do
   let (Right csr') = (fromDER . toDER) csr
-  assertBool "csr' == csr" $ (certificationRequest csr') == csr
+  assertBool "DER: csr' == csr" $ (certificationRequest csr') == csr
 
 checkPEM csr = do
   let (Right csr') = (fromPEM . toPEM) csr
-  assertBool "csr' == csr" $ (certificationRequest csr') == csr
+  assertBool "PEM: csr' == csr" $ (certificationRequest csr') == csr
   let (Right csr'') = (fromPEM . toNewFormatPEM) csr
-  assertBool "csr'' == csr" $
+  assertBool "PEM: csr'' == csr" $
     (certificationRequest csr'') == csr
   assertBool "pemName == CERTIFICATE REQUEST" $
     (pemName . toPEM $ csr) == "CERTIFICATE REQUEST"
