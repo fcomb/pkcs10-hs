@@ -1,5 +1,5 @@
 name:                pkcs10
-version:             0.1.0.3
+version:             0.1.0.4
 synopsis:            PKCS#10 library
 description:         Please see README.md
 homepage:            https://github.com/fcomb/pkcs10-hs#readme
@@ -13,6 +13,15 @@ build-type:          Simple
 cabal-version:       >=1.10
 stability:           experimental
 extra-doc-files:     README.md
+extra-source-files:  test/fixtures/dsaparams
+                   , test/fixtures/dsa.pem
+                   , test/fixtures/dsa1.csr
+                   , test/fixtures/dsa2.csr
+                   , test/fixtures/dsa3.csr
+                   , test/fixtures/rsa.pem
+                   , test/fixtures/rsa1.csr
+                   , test/fixtures/rsa2.csr
+                   , test/fixtures/rsa3.csr
 
 library
   ghc-options:         -W

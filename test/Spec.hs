@@ -98,8 +98,8 @@ readRSA pem = PubKeyRSA $ readRsaPubKey pem 256
 readDSA pem = PubKeyDSA $ readDsaPubKey pem
 
 checkRsaFixtureCSR keyName csrName subjectAttrs extAttrs pkf = do
-  keyPem <- readPEMFile $ "./test/fixtures/" ++ keyName ++ ".pem"
-  csrPem <- readPEMFile $ "./test/fixtures/" ++ csrName ++ ".csr"
+  keyPem <- readPEMFile $ "test/fixtures/" ++ keyName ++ ".pem"
+  csrPem <- readPEMFile $ "test/fixtures/" ++ csrName ++ ".csr"
   checkCSR (readCSR csrPem) subjectAttrs extAttrs $ pkf keyPem
 
 defaultRsaCSR subjectAttrs extAttrs = do

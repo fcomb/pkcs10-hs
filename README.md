@@ -20,5 +20,5 @@ main = do
   let extAttrs = PKCS9Attributes [PKCS9Attribute $ ExtBasicConstraints False Nothing, PKCS9Attribute $ ExtKeyUsage [KeyUsage_digitalSignature,KeyUsage_nonRepudiation,KeyUsage_keyEncipherment]]
   Right req <- generateCSR subjectAttrs extAttrs (KeyPairRSA pubKey privKey) SHA512
   putStrLn . show . toPEM $ req -- export in PEM format
-  putStrLn . show $ verify (csrToSigned req) $ PubKeyRSA pubKey -- sign CSR before verify
+  putStrLn . show $ verify (csrToSigned req) $ PubKeyRSA pubKey -- sign CSR before verifying
 ```
