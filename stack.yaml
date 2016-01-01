@@ -1,4 +1,4 @@
-resolver: lts-3.7
+resolver: nightly-2016-01-01
 
 packages:
 - '.'
@@ -6,5 +6,3 @@ packages:
 extra-deps: []
 
 flags: {}
-
-extra-package-dbs: []

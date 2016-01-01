@@ -1,5 +1,5 @@
 name:                pkcs10
-version:             0.1.0.4
+version:             0.1.0.5
 synopsis:            PKCS#10 library
 description:         Please see README.md
 homepage:            https://github.com/fcomb/pkcs10-hs#readme
@@ -46,6 +46,7 @@ test-suite             tests
   other-modules:       Keys
   build-depends:       base >= 4.3 && < 5
                      , pkcs10
+                     , transformers < 0.5
                      , tasty
                      , tasty-hunit
                      , tasty-quickcheck
