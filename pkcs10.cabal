@@ -46,7 +46,7 @@ test-suite             tests
   other-modules:       Keys
   build-depends:       base >= 4.3 && < 5
                      , pkcs10
-                     , transformers < 0.5
+                     , transformers
                      , tasty
                      , tasty-hunit
                      , tasty-quickcheck
