@@ -184,6 +184,12 @@ newtype Version = Version Int deriving (Show, Eq)
 newtype Signature =
         Signature B.ByteString deriving (Show, Eq)
 
+-- | Errors.
+data Error =
+     ASN1UnknownError String
+   | PEMUnknownFormat
+   deriving (Show, Eq)
+
 instance ASN1Object CertificationRequest where
   toASN1 (CertificationRequest info sigAlg sig) xs =
     Start Sequence :
@@ -431,14 +437,14 @@ instance ASN1Object DSA.Signature where
   fromASN1 _ = Left "fromASN1: DSA.Signature: unknown format"
 
 -- | Generate CSR.
-generateCSR :: (MonadRandom m, HashAlgorithmConversion hashAlg, HashAlgorithm hashAlg) => X520Attributes -> PKCS9Attributes -> KeyPair -> hashAlg -> m (Either String CertificationRequest)
+generateCSR :: (MonadRandom m, HashAlgorithmConversion hashAlg, HashAlgorithm hashAlg) => X520Attributes -> PKCS9Attributes -> KeyPair -> hashAlg -> m (Either Error CertificationRequest)
 
 generateCSR subject extAttrs (KeyPairRSA pubKey privKey) hashAlg =
   f <$> sign certReqInfo
   where
     certReqInfo = makeCertReqInfo subject extAttrs $ PubKeyRSA pubKey
     sign = RSA.signSafer (Just hashAlg) privKey . encodeToDER
-    f = either (Left . show) (Right . certReq)
+    f = either (Left . ASN1UnknownError . show) (Right . certReq)
     certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_RSA
 
 generateCSR subject extAttrs (KeyPairDSA pubKey privKey) hashAlg =
@@ -517,13 +523,15 @@ toNewFormatPEM req = PEM {
 }
 
 -- | Convert ByteString to signed CSR.
-fromDER :: BC.ByteString -> Either String SignedCertificationRequest
+fromDER :: BC.ByteString -> Either Error SignedCertificationRequest
 fromDER bs =
-   fst <$> (parseSignedCertificationRequest =<< decodeDER bs)
+   fst <$> f (parseSignedCertificationRequest =<< decodeDER bs)
+   where
+     f = either (Left . ASN1UnknownError . show) Right
 
 -- | Convert PEM to signed CSR.
-fromPEM :: PEM -> Either String SignedCertificationRequest
+fromPEM :: PEM -> Either Error SignedCertificationRequest
 fromPEM p =
   if pemName p == requestHeader || pemName p == newFormatRequestHeader
   then fromDER . pemContent $ p
-  else Left "PEM: unknown format"
+  else Left PEMUnknownFormat
