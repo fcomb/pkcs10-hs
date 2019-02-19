@@ -40,6 +40,7 @@ import           Crypto.Hash
 import qualified Crypto.PubKey.DSA        as DSA
 import qualified Crypto.PubKey.RSA        as RSA
 import qualified Crypto.PubKey.ECC.ECDSA  as ECC
+import qualified Crypto.PubKey.ECC.Types  as ECC
 import qualified Crypto.PubKey.RSA.PKCS15 as RSA
 import           Crypto.Random            (MonadRandom)
 import           Data.ASN1.BinaryEncoding
@@ -48,6 +49,7 @@ import           Data.ASN1.Encoding
 import           Data.ASN1.OID
 import           Data.ASN1.Parse
 import           Data.ASN1.Types
+import           Crypto.Number.Serialize
 import qualified Data.ByteString          as B
 import qualified Data.ByteString.Char8    as BC
 import           Data.PEM
@@ -241,7 +243,7 @@ instance ASN1Object ECC.Signature where
   fromASN1 (IntVal r : IntVal s : xs) = do
     Right (ECC.Signature r s, xs)
 
-  fromASN1 _ = Left "fromASN1: PKCS9.CertificationRequestInfo: unknown format"
+  fromASN1 _ = Left "fromASN1: PKCS9.Signature: unknown format"
 
 instance ASN1Object CertificationRequestInfo where
   toASN1 (CertificationRequestInfo version subject pubKey attributes) xs =
@@ -466,16 +468,26 @@ generateCSR subject extAttrs (KeyPairDSA pubKey privKey) hashAlg =
     f = Right . certReq . encodeToDER
     certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_DSA
 
-generateCSR subject extAttrs (KeyPairECC pubKey privKey) hashAlg = do
-  let certReqInfo = makeCertReqInfo subject extAttrs $ ecPubToPub pubKey
-  sig <- ECC.sign privKey hashAlg (encodeToDER certReqInfo)
-  let certReq = makeCertReq certReqInfo (encodeToDER sig) hashAlg PubKeyALG_EC
-  return $ Right certReq 
-    
+generateCSR subject extAttrs (KeyPairECC pubKey privKey) hashAlg =
+  f <$> sign certReqInfo
+  where
+    certReqInfo = makeCertReqInfo subject extAttrs $ pubKeyECC pubKey
+    sign = ECC.sign privKey hashAlg . encodeToDER
+    f = Right . certReq . encodeToDER
+    certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_EC    
 
-ecPubToPub :: ECC.PublicKey -> PubKey
-ecPubToPub pb = do
-  error "Not yet Implememnetd"
+-- | Need conversion since Public key definitions are different in cryptonite and X509 libs
+-- | Public point to Serilized point helper method
+-- | https://github.com/vincenthz/hs-certificate/blob/f993eadf20072bf31f238c48eb76b2509a5a1c7d/x509-validation/Tests/Certificate.hs#L142
+pubKeyECC :: ECC.PublicKey -> PubKey
+pubKeyECC pb = 
+  PubKeyEC (PubKeyEC_Named (ECC.SEC_p256k1) pub)
+  where
+    ECC.Point x y = ECC.public_q pb
+    pub = SerializedPoint bs
+    bs    = B.cons 4 (i2ospOf_ bytes x `B.append` i2ospOf_ bytes y)
+    bits  = ECC.curveSizeBits (ECC.getCurveByName ECC.SEC_p256k1)
+    bytes = (bits + 7) `div` 8
 
 -- | Sign CSR.
 csrToSigned :: CertificationRequest -> SignedCertificationRequest
