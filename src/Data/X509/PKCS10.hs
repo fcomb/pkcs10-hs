@@ -236,14 +236,9 @@ instance ASN1Object Signature where
 
 instance ASN1Object ECC.Signature where
   toASN1 (ECC.Signature r s) xs =
-      [ Start Sequence
-      , IntVal (r)
-      , IntVal (s)
-      , End Sequence
-      ]
+    (IntVal r) : (IntVal s) : xs
 
-  fromASN1 (Start Sequence : xs) = do
-    let (IntVal r: IntVal s:x) = xs
+  fromASN1 (IntVal r : IntVal s : xs) = do
     Right (ECC.Signature r s, xs)
 
   fromASN1 _ = Left "fromASN1: PKCS9.CertificationRequestInfo: unknown format"
