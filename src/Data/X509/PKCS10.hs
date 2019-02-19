@@ -39,6 +39,7 @@ import           Control.Applicative      ((<$>), (<*>))
 import           Crypto.Hash
 import qualified Crypto.PubKey.DSA        as DSA
 import qualified Crypto.PubKey.RSA        as RSA
+import qualified Crypto.PubKey.ECC.ECDSA  as ECC
 import qualified Crypto.PubKey.RSA.PKCS15 as RSA
 import           Crypto.Random            (MonadRandom)
 import           Data.ASN1.BinaryEncoding
@@ -233,6 +234,20 @@ instance ASN1Object Signature where
 
   fromASN1 _ = Left "fromASN1: PKCS9.Signature: unknown format"
 
+instance ASN1Object ECC.Signature where
+  toASN1 (ECC.Signature r s) xs =
+      [ Start Sequence
+      , IntVal (r)
+      , IntVal (s)
+      , End Sequence
+      ]
+
+  fromASN1 (Start Sequence : xs) = do
+    let (IntVal r: IntVal s:x) = xs
+    Right (ECC.Signature r s, xs)
+
+  fromASN1 _ = Left "fromASN1: PKCS9.CertificationRequestInfo: unknown format"
+
 instance ASN1Object CertificationRequestInfo where
   toASN1 (CertificationRequestInfo version subject pubKey attributes) xs =
     Start Sequence :
@@ -408,6 +423,7 @@ decodeFromDER bs = fromASN1 =<< decodeDER bs
 data KeyPair =
    KeyPairRSA RSA.PublicKey RSA.PrivateKey
  | KeyPairDSA DSA.PublicKey DSA.PrivateKey
+ | KeyPairECC ECC.PublicKey ECC.PrivateKey
    deriving (Show, Eq)
 
 makeCertReqInfo :: X520Attributes -> PKCS9Attributes -> PubKey -> CertificationRequestInfo
@@ -454,6 +470,17 @@ generateCSR subject extAttrs (KeyPairDSA pubKey privKey) hashAlg =
     sign = DSA.sign privKey hashAlg . encodeToDER
     f = Right . certReq . encodeToDER
     certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_DSA
+
+generateCSR subject extAttrs (KeyPairECC pubKey privKey) hashAlg = do
+  let certReqInfo = makeCertReqInfo subject extAttrs $ ecPubToPub pubKey
+  sig <- ECC.sign privKey hashAlg (encodeToDER certReqInfo)
+  let certReq = makeCertReq certReqInfo (encodeToDER sig) hashAlg PubKeyALG_EC
+  return $ Right certReq 
+    
+
+ecPubToPub :: ECC.PublicKey -> PubKey
+ecPubToPub pb = do
+  error "Not yet Implememnetd"
 
 -- | Sign CSR.
 csrToSigned :: CertificationRequest -> SignedCertificationRequest
