@@ -236,15 +236,6 @@ instance ASN1Object Signature where
 
   fromASN1 _ = Left "fromASN1: PKCS9.Signature: unknown format"
 
-instance ASN1Object ECC.Signature where
-  toASN1 (ECC.Signature r s) xs =
-    (IntVal r) : (IntVal s) : xs
-
-  fromASN1 (IntVal r : IntVal s : xs) = do
-    Right (ECC.Signature r s, xs)
-
-  fromASN1 _ = Left "fromASN1: PKCS9.Signature: unknown format"
-
 instance ASN1Object CertificationRequestInfo where
   toASN1 (CertificationRequestInfo version subject pubKey attributes) xs =
     Start Sequence :
@@ -449,6 +440,15 @@ instance ASN1Object DSA.Signature where
 
   fromASN1 _ = Left "fromASN1: DSA.Signature: unknown format"
 
+instance ASN1Object ECC.Signature where
+  toASN1 ECC.Signature { ECC.sign_r = r, ECC.sign_s = s } xs =
+    Start Sequence : IntVal r : IntVal s : End Sequence : xs
+
+  fromASN1 (Start Sequence : IntVal r : IntVal s : End Sequence : xs) =
+    Right (ECC.Signature { ECC.sign_r = r, ECC.sign_s = s }, xs)
+
+  fromASN1 _ = Left "fromASN1: DSA.Signature: unknown format"
+  
 -- | Generate CSR.
 generateCSR :: (MonadRandom m, HashAlgorithmConversion hashAlg, HashAlgorithm hashAlg) => X520Attributes -> PKCS9Attributes -> KeyPair -> hashAlg -> m (Either Error CertificationRequest)
 
@@ -481,12 +481,12 @@ generateCSR subject extAttrs (KeyPairECC pubKey privKey) hashAlg =
 -- | https://github.com/vincenthz/hs-certificate/blob/f993eadf20072bf31f238c48eb76b2509a5a1c7d/x509-validation/Tests/Certificate.hs#L142
 pubKeyECC :: ECC.PublicKey -> PubKey
 pubKeyECC pb = 
-  PubKeyEC (PubKeyEC_Named (ECC.SEC_p256k1) pub)
+  PubKeyEC (PubKeyEC_Named (ECC.SEC_p256r1) pub)
   where
     ECC.Point x y = ECC.public_q pb
     pub = SerializedPoint bs
     bs    = B.cons 4 (i2ospOf_ bytes x `B.append` i2ospOf_ bytes y)
-    bits  = ECC.curveSizeBits (ECC.getCurveByName ECC.SEC_p256k1)
+    bits  = ECC.curveSizeBits (ECC.getCurveByName ECC.SEC_p256r1)
     bytes = (bits + 7) `div` 8
 
 -- | Sign CSR.
