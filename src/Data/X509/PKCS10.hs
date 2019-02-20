@@ -407,11 +407,11 @@ decodeDER = either (Left . show) Right . decodeASN1' DER
 decodeFromDER :: ASN1Object o => BC.ByteString -> Either String (o, [ASN1])
 decodeFromDER bs = fromASN1 =<< decodeDER bs
 
--- | Key pair for RSA and DSA keys.
+-- | Key pair for RSA, DSA and ECDSA keys.
 data KeyPair =
    KeyPairRSA RSA.PublicKey RSA.PrivateKey
  | KeyPairDSA DSA.PublicKey DSA.PrivateKey
- | KeyPairECC ECC.PublicKey ECC.PrivateKey
+ | KeyPairECC ECC.PublicKey ECC.PrivateKey ECC.CurveName
    deriving (Show, Eq)
 
 makeCertReqInfo :: X520Attributes -> PKCS9Attributes -> PubKey -> CertificationRequestInfo
@@ -468,26 +468,13 @@ generateCSR subject extAttrs (KeyPairDSA pubKey privKey) hashAlg =
     f = Right . certReq . encodeToDER
     certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_DSA
 
-generateCSR subject extAttrs (KeyPairECC pubKey privKey) hashAlg =
+generateCSR subject extAttrs (KeyPairECC pubKey privKey curveName) hashAlg =
   f <$> sign certReqInfo
   where
-    certReqInfo = makeCertReqInfo subject extAttrs $ pubKeyECC pubKey
+    certReqInfo = makeCertReqInfo subject extAttrs $ pubKeyECC pubKey curveName
     sign = ECC.sign privKey hashAlg . encodeToDER
     f = Right . certReq . encodeToDER
     certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_EC    
-
--- | Need conversion since Public key definitions are different in cryptonite and X509 libs
--- | Public point to Serilized point helper method
--- | https://github.com/vincenthz/hs-certificate/blob/f993eadf20072bf31f238c48eb76b2509a5a1c7d/x509-validation/Tests/Certificate.hs#L142
-pubKeyECC :: ECC.PublicKey -> PubKey
-pubKeyECC pb = 
-  PubKeyEC (PubKeyEC_Named (ECC.SEC_p256r1) pub)
-  where
-    ECC.Point x y = ECC.public_q pb
-    pub = SerializedPoint bs
-    bs    = B.cons 4 (i2ospOf_ bytes x `B.append` i2ospOf_ bytes y)
-    bits  = ECC.curveSizeBits (ECC.getCurveByName ECC.SEC_p256r1)
-    bytes = (bits + 7) `div` 8
 
 -- | Sign CSR.
 csrToSigned :: CertificationRequest -> SignedCertificationRequest
@@ -569,3 +556,16 @@ fromPEM p =
   if pemName p == requestHeader || pemName p == newFormatRequestHeader
   then fromDER . pemContent $ p
   else Left PEMUnknownFormat
+
+-- | Need conversion since Public key definitions are different in cryptonite and X509
+-- | Public point to Serilized point helper from
+-- | https://github.com/vincenthz/hs-certificate/blob/f993eadf20072bf31f238c48eb76b2509a5a1c7d/x509-validation/Tests/Certificate.hs#L142
+pubKeyECC :: ECC.PublicKey -> ECC.CurveName ->  PubKey
+pubKeyECC pb curveName = 
+  PubKeyEC (PubKeyEC_Named curveName pub)
+  where
+    ECC.Point x y = ECC.public_q pb
+    pub = SerializedPoint bs
+    bs    = B.cons 4 (i2ospOf_ bytes x `B.append` i2ospOf_ bytes y)
+    bits  = ECC.curveSizeBits (ECC.getCurveByName curveName)
+    bytes = (bits + 7) `div` 8
