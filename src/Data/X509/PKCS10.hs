@@ -447,7 +447,7 @@ instance ASN1Object ECC.Signature where
   fromASN1 (Start Sequence : IntVal r : IntVal s : End Sequence : xs) =
     Right (ECC.Signature { ECC.sign_r = r, ECC.sign_s = s }, xs)
 
-  fromASN1 _ = Left "fromASN1: DSA.Signature: unknown format"
+  fromASN1 _ = Left "fromASN1: ECC.Signature: unknown format"
   
 -- | Generate CSR.
 generateCSR :: (MonadRandom m, HashAlgorithmConversion hashAlg, HashAlgorithm hashAlg) => X520Attributes -> PKCS9Attributes -> KeyPair -> hashAlg -> m (Either Error CertificationRequest)
