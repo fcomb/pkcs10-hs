@@ -39,6 +39,8 @@ import           Control.Applicative      ((<$>), (<*>))
 import           Crypto.Hash
 import qualified Crypto.PubKey.DSA        as DSA
 import qualified Crypto.PubKey.RSA        as RSA
+import qualified Crypto.PubKey.ECC.ECDSA  as ECC
+import qualified Crypto.PubKey.ECC.Types  as ECC
 import qualified Crypto.PubKey.RSA.PKCS15 as RSA
 import           Crypto.Random            (MonadRandom)
 import           Data.ASN1.BinaryEncoding
@@ -47,6 +49,7 @@ import           Data.ASN1.Encoding
 import           Data.ASN1.OID
 import           Data.ASN1.Parse
 import           Data.ASN1.Types
+import           Crypto.Number.Serialize
 import qualified Data.ByteString          as B
 import qualified Data.ByteString.Char8    as BC
 import           Data.PEM
@@ -404,10 +407,11 @@ decodeDER = either (Left . show) Right . decodeASN1' DER
 decodeFromDER :: ASN1Object o => BC.ByteString -> Either String (o, [ASN1])
 decodeFromDER bs = fromASN1 =<< decodeDER bs
 
--- | Key pair for RSA and DSA keys.
+-- | Key pair for RSA, DSA and ECDSA keys.
 data KeyPair =
    KeyPairRSA RSA.PublicKey RSA.PrivateKey
  | KeyPairDSA DSA.PublicKey DSA.PrivateKey
+ | KeyPairECC ECC.PublicKey ECC.PrivateKey ECC.CurveName
    deriving (Show, Eq)
 
 makeCertReqInfo :: X520Attributes -> PKCS9Attributes -> PubKey -> CertificationRequestInfo
@@ -436,6 +440,15 @@ instance ASN1Object DSA.Signature where
 
   fromASN1 _ = Left "fromASN1: DSA.Signature: unknown format"
 
+instance ASN1Object ECC.Signature where
+  toASN1 ECC.Signature { ECC.sign_r = r, ECC.sign_s = s } xs =
+    Start Sequence : IntVal r : IntVal s : End Sequence : xs
+
+  fromASN1 (Start Sequence : IntVal r : IntVal s : End Sequence : xs) =
+    Right (ECC.Signature { ECC.sign_r = r, ECC.sign_s = s }, xs)
+
+  fromASN1 _ = Left "fromASN1: ECC.Signature: unknown format"
+  
 -- | Generate CSR.
 generateCSR :: (MonadRandom m, HashAlgorithmConversion hashAlg, HashAlgorithm hashAlg) => X520Attributes -> PKCS9Attributes -> KeyPair -> hashAlg -> m (Either Error CertificationRequest)
 
@@ -454,6 +467,14 @@ generateCSR subject extAttrs (KeyPairDSA pubKey privKey) hashAlg =
     sign = DSA.sign privKey hashAlg . encodeToDER
     f = Right . certReq . encodeToDER
     certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_DSA
+
+generateCSR subject extAttrs (KeyPairECC pubKey privKey curveName) hashAlg =
+  f <$> sign certReqInfo
+  where
+    certReqInfo = makeCertReqInfo subject extAttrs $ pubKeyECC pubKey curveName
+    sign = ECC.sign privKey hashAlg . encodeToDER
+    f = Right . certReq . encodeToDER
+    certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_EC    
 
 -- | Sign CSR.
 csrToSigned :: CertificationRequest -> SignedCertificationRequest
@@ -535,3 +556,16 @@ fromPEM p =
   if pemName p == requestHeader || pemName p == newFormatRequestHeader
   then fromDER . pemContent $ p
   else Left PEMUnknownFormat
+
+-- | Need conversion since Public key definitions are different in cryptonite and X509
+-- | Public point to Serilized point helper from
+-- | https://github.com/vincenthz/hs-certificate/blob/f993eadf20072bf31f238c48eb76b2509a5a1c7d/x509-validation/Tests/Certificate.hs#L142
+pubKeyECC :: ECC.PublicKey -> ECC.CurveName ->  PubKey
+pubKeyECC pb curveName = 
+  PubKeyEC (PubKeyEC_Named curveName pub)
+  where
+    ECC.Point x y = ECC.public_q pb
+    pub = SerializedPoint bs
+    bs    = B.cons 4 (i2ospOf_ bytes x `B.append` i2ospOf_ bytes y)
+    bits  = ECC.curveSizeBits (ECC.getCurveByName curveName)
+    bytes = (bits + 7) `div` 8
