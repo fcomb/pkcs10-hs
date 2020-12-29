@@ -212,7 +212,7 @@ parseSignedCertificationRequest (Start Sequence : xs) =
     where
       parseCertReqInfo xs' =
         case fromASN1 xs' of
-          Right (cri @ CertificationRequestInfo {}, rest) ->
+          Right (cri@ CertificationRequestInfo {}, rest) ->
             runParseASN1State (p cri raw) rest
             where
               raw = encodeASN1' DER $ take (length xs' - length rest) xs'
@@ -317,6 +317,7 @@ instance ASN1Object PKCS9Attribute where
     where
       decode :: forall e . (Extension e, Show e, Eq e, Typeable e) => Either String e
       decode = extDecode =<< decodeDER os
+      f :: forall a. (Extension a, Show a, Eq a, Typeable a) => Either String a -> Either String (PKCS9Attribute, [ASN1])
       f (Right attr) = Right (PKCS9Attribute attr, xs)
       f (Left e) = Left e
 
@@ -357,7 +358,7 @@ instance ASN1Object PKCS9Attributes where
                   End (Container Context 0) :
                   rest') =
             Right (PKCS9Attributes $ reverse exts, rest')
-          g exts (rest' @ (Start Sequence : _)) =
+          g exts (rest'@ (Start Sequence : _)) =
             case fromASN1 rest' of
               Right (attr, xss) -> g (attr : exts) xss
               Left e -> Left e
@@ -448,7 +449,7 @@ instance ASN1Object ECC.Signature where
     Right (ECC.Signature { ECC.sign_r = r, ECC.sign_s = s }, xs)
 
   fromASN1 _ = Left "fromASN1: ECC.Signature: unknown format"
-  
+
 -- | Generate CSR.
 generateCSR :: (MonadRandom m, HashAlgorithmConversion hashAlg, HashAlgorithm hashAlg) => X520Attributes -> PKCS9Attributes -> KeyPair -> hashAlg -> m (Either Error CertificationRequest)
 
@@ -474,7 +475,7 @@ generateCSR subject extAttrs (KeyPairECC pubKey privKey curveName) hashAlg =
     certReqInfo = makeCertReqInfo subject extAttrs $ pubKeyECC pubKey curveName
     sign = ECC.sign privKey hashAlg . encodeToDER
     f = Right . certReq . encodeToDER
-    certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_EC    
+    certReq s = makeCertReq certReqInfo s hashAlg PubKeyALG_EC
 
 -- | Sign CSR.
 csrToSigned :: CertificationRequest -> SignedCertificationRequest
@@ -561,7 +562,7 @@ fromPEM p =
 -- | Public point to Serilized point helper from
 -- | https://github.com/vincenthz/hs-certificate/blob/f993eadf20072bf31f238c48eb76b2509a5a1c7d/x509-validation/Tests/Certificate.hs#L142
 pubKeyECC :: ECC.PublicKey -> ECC.CurveName ->  PubKey
-pubKeyECC pb curveName = 
+pubKeyECC pb curveName =
   PubKeyEC (PubKeyEC_Named curveName pub)
   where
     ECC.Point x y = ECC.public_q pb
