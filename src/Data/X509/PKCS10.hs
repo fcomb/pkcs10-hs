@@ -28,7 +28,7 @@ module Data.X509.PKCS10
     , generateCSR
     , csrToSigned
     , verify
-    , toDER
+    , encodeToDER
     , fromDER
     , toPEM
     , toNewFormatPEM
@@ -516,10 +516,6 @@ verify csr
       Right (dsaSig, _) -> Just dsaSig
       _ -> Nothing
 
--- | Convert CSR to DER as ByteString.
-toDER :: CertificationRequest -> BC.ByteString
-toDER = encodeToDER
-
 requestHeader :: String
 requestHeader = "CERTIFICATE REQUEST"
 
@@ -528,7 +524,7 @@ toPEM :: CertificationRequest -> PEM
 toPEM req = PEM {
   pemName = requestHeader
 , pemHeader = []
-, pemContent = toDER req
+, pemContent = encodeToDER req
 }
 
 newFormatRequestHeader :: String
@@ -539,7 +535,7 @@ toNewFormatPEM :: CertificationRequest -> PEM
 toNewFormatPEM req = PEM {
   pemName = newFormatRequestHeader
 , pemHeader = []
-, pemContent = toDER req
+, pemContent = encodeToDER req
 }
 
 -- | Convert ByteString to signed CSR.
