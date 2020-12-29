@@ -485,17 +485,24 @@ csrToSigned req = SignedCertificationRequest {
 }
 
 -- | Verify signed CSR.
-verify :: SignedCertificationRequest -> PubKey -> Bool
-verify SignedCertificationRequest {
-         certificationRequest = CertificationRequest {
-           signatureAlgorithm = SignatureALG hashAlg PubKeyALG_RSA
-         , signature = Signature sm
-         }
-       , rawCertificationRequestInfo = m
-       }
-       (PubKeyRSA pubKey) =
-  rsaVerify hashAlg pubKey m sm
+verify :: SignedCertificationRequest -> Bool
+verify csr
+  | PubKeyRSA rsaPubKey <- pubKey, PubKeyALG_RSA <- sigAlg
+    = rsaVerify hashAlg rsaPubKey raw sig
+  | PubKeyDSA dsaPubKey <- pubKey, PubKeyALG_DSA <- sigAlg, Just dsaSig <- getDSASig sig, HashSHA1 <- hashAlg
+    = DSA.verify SHA1 dsaPubKey dsaSig raw
+  | otherwise = False
   where
+    raw = rawCertificationRequestInfo csr :: BC.ByteString
+
+    csr' = certificationRequest csr
+    SignatureALG hashAlg sigAlg = signatureAlgorithm csr'
+    Signature sig = signature csr'
+    pubKey = subjectPublicKeyInfo $ certificationRequestInfo csr' :: PubKey
+
+    -- | Helpers:
+
+    rsaVerify :: HashALG -> RSA.PublicKey -> BC.ByteString -> BC.ByteString -> Bool
     rsaVerify HashMD2 = RSA.verify (Just MD2)
     rsaVerify HashMD5 = RSA.verify (Just MD5)
     rsaVerify HashSHA1 = RSA.verify (Just SHA1)
@@ -504,19 +511,10 @@ verify SignedCertificationRequest {
     rsaVerify HashSHA384 = RSA.verify (Just SHA384)
     rsaVerify HashSHA512 = RSA.verify (Just SHA512)
 
-verify SignedCertificationRequest {
-         certificationRequest = CertificationRequest {
-           signatureAlgorithm = SignatureALG HashSHA1 PubKeyALG_DSA
-         , signature = Signature sm
-         }
-         , rawCertificationRequestInfo = m
-       }
-       (PubKeyDSA pubKey) =
-  case decodeFromDER sm of
-    Right (dsaSig, _) -> DSA.verify SHA1 pubKey dsaSig m
-    _ -> False
-
-verify _ _ = False
+    getDSASig :: BC.ByteString -> Maybe DSA.Signature
+    getDSASig bs = case decodeFromDER bs of
+      Right (dsaSig, _) -> Just dsaSig
+      _ -> Nothing
 
 -- | Convert CSR to DER as ByteString.
 toDER :: CertificationRequest -> BC.ByteString
