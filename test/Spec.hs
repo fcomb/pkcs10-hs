@@ -14,9 +14,9 @@ import           Data.PEM
 import           Data.X509
 import           Data.X509.PKCS10
 import           Keys
-import           Test.QuickCheck.Monadic  (monadicIO, run)
+import           Test.QuickCheck.Monadic  (monadicIO, run, assert)
 import           Test.Tasty
-import           Test.Tasty.HUnit
+import           Test.Tasty.HUnit hiding (assert)
 import           Test.Tasty.QuickCheck
 
 main :: IO ()
@@ -74,7 +74,7 @@ instance Arbitrary ASN1StringEncoding where
   arbitrary = elements [IA5,UTF8,Printable,Visible]
 
 instance Arbitrary X520Attribute where
-  arbitrary = elements [X520CommonName,X520SerialNumber,X520Name,X520Surname,X520GivenName,X520Initials,X520GenerationQualifier,X520CountryName,X520LocalityName,X520StateOrProvinceName,X520StreetAddress,X520OrganizationName,X520OrganizationalUnitName,X520Title,X520DNQualifier,X520Pseudonym,X509SubjectAltName,EmailAddress,IPAddress,DomainComponent,UserId,RawAttribute [12,3,4,5]]
+  arbitrary = elements [X520CommonName,X520SerialNumber,X520Name,X520Surname,X520GivenName,X520Initials,X520GenerationQualifier,X520CountryName,X520LocalityName,X520StateOrProvinceName,X520StreetAddress,X520OrganizationName,X520OrganizationalUnitName,X520Title,X520DNQualifier,X520Pseudonym,X509SubjectAltName,EmailAddress,IPAddress,DomainComponent,UserId,RawAttribute [1,2,3,4,5]]
 
 arbitraryX520Attrs r1 r2 =
   choose (r1,r2) >>= \l -> replicateM l arbitraryAttr
@@ -90,8 +90,12 @@ instance Arbitrary ASN1CharacterString where
   arbitrary = ASN1CharacterString <$> arbitrary <*> arbitraryBS 1 36
 
 property_csr subjectAttrs pubKey = monadicIO $ do
-  req <- run $ defaultRsaCSR subjectAttrs pemExtAttrs
-  return $ checkCSR (csrToSigned req) subjectAttrs pemExtAttrs pubKey
+  req <- run $ case pubKey of
+                PubKeyRSA _ -> defaultRsaCSR subjectAttrs pemExtAttrs
+                PubKeyDSA _ -> defaultDsaCSR subjectAttrs pemExtAttrs
+                _ -> undefined
+  check <- run $ checkCSR (csrToSigned req) subjectAttrs pemExtAttrs pubKey
+  assert $ check == ()
 
 readRSA pem = PubKeyRSA $ readRsaPubKey pem 256
 
